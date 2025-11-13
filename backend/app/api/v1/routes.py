@@ -18,3 +18,11 @@ async def get_ohlcv(symbol: str, start: str | None = None, end: str | None = Non
         "end": end,
         "data": [],
     }
+
+
+@router.get("/demo/prices")
+async def demo_prices():
+    return {
+        "symbol": "DEMO",
+        "prices": [100, 101, 102, 99, 105],
+    }
