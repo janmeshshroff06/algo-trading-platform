@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    working_dir: /app/backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../backend:/app/backend:ro
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.frontend
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    working_dir: /app/frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app/frontend
+    environment:
+      - NODE_ENV=development
