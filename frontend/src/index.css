@@ -109,6 +109,11 @@ h1 {
   margin-bottom: 1rem;
 }
 
+.button-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .muted {
   color: #94a3b8;
   margin: 0;
@@ -117,6 +122,83 @@ h1 {
 .error {
   color: #f87171;
   margin: 0;
+}
+
+.chart-container {
+  height: 18rem;
+}
+
+.backtest-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.metric-card {
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.metric-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.equity-panel {
+  border: 1px solid #1e293b;
+  border-radius: 1rem;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+}
+
+.trades-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.trades-table th,
+.trades-table td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #1e293b;
+}
+
+.trades-table th {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: #94a3b8;
+}
+
+.trade-buy {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.trade-sell {
+  color: #f87171;
+  font-weight: 600;
 }
 
 .price-chart {
