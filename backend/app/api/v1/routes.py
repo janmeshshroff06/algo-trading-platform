@@ -79,6 +79,7 @@ async def sma_crossover_backtest(
     period: str = "3mo",
     interval: str = "1d",
     initial_capital: float = Query(10_000, gt=0),
+    fee_rate: float = Query(0.0005, ge=0.0),  # e.g., 5 bps per trade
 ):
     """
     Simple SMA crossover backtest that goes long when short SMA crosses above long SMA.
@@ -130,17 +131,31 @@ async def sma_crossover_backtest(
             shares = int(cash // price)
             if shares > 0:
                 cost = shares * price
-                cash -= cost
+                commission = cost * fee_rate
+                cash -= cost + commission
                 entry_price = price
                 entry_shares = shares
                 trades.append(
-                    {"timestamp": timestamp, "side": "BUY", "price": price, "shares": shares}
+                    {
+                        "timestamp": timestamp,
+                        "side": "BUY",
+                        "price": price,
+                        "shares": shares,
+                        "equity_after_trade": round(cash + shares * price, 2),
+                    }
                 )
         elif signal == -1 and shares > 0:
             proceeds = shares * price
-            cash += proceeds
+            commission = proceeds * fee_rate
+            cash += proceeds - commission
             trades.append(
-                {"timestamp": timestamp, "side": "SELL", "price": price, "shares": shares}
+                {
+                    "timestamp": timestamp,
+                    "side": "SELL",
+                    "price": price,
+                    "shares": shares,
+                    "equity_after_trade": round(cash, 2),
+                }
             )
             if entry_price is not None and entry_shares:
                 completed_trades += 1
@@ -166,16 +181,24 @@ async def sma_crossover_backtest(
     max_drawdown = float(drawdown.min()) if not drawdown.empty else 0.0
 
     win_rate = (wins / completed_trades) if completed_trades > 0 else 0.0
+    total_return = (equity_curve[-1]["equity"] / initial_capital) - 1 if equity_curve else 0.0
+    num_trades = completed_trades
 
     return {
         "symbol": symbol.upper(),
         "short_window": short_window,
         "long_window": long_window,
+        "period": period,
+        "interval": interval,
+        "initial_capital": initial_capital,
+        "fee_rate": fee_rate,
         "equity_curve": equity_curve,
         "trades": trades,
         "metrics": {
             "sharpe": round(float(sharpe), 3),
             "max_drawdown": round(max_drawdown, 4),
             "win_rate": round(win_rate, 3),
+            "total_return": round(total_return, 4),
+            "num_trades": num_trades,
         },
     }

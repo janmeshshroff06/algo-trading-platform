@@ -109,6 +109,33 @@ h1 {
   margin-bottom: 1rem;
 }
 
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.input-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.input-number,
+.input-select {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  color: #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  min-width: 5rem;
+}
+
+.input-select {
+  padding-right: 1.5rem;
+}
+
 .button-group {
   display: flex;
   gap: 0.5rem;

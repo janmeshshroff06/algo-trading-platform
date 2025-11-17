@@ -35,54 +35,81 @@ type Trade = {
   side: "BUY" | "SELL";
   price: number;
   shares: number;
+  equity_after_trade?: number;
 };
 
 type BacktestMetrics = {
   sharpe: number;
   max_drawdown: number;
   win_rate: number;
+  total_return?: number;
+  num_trades?: number;
 };
 
 type BacktestResponse = {
   symbol: string;
   short_window: number;
   long_window: number;
+  period?: string;
+  interval?: string;
+  initial_capital?: number;
+  fee_rate?: number;
   equity_curve: EquityPoint[];
   trades: Trade[];
   metrics: BacktestMetrics;
+};
+
+type HistoryRow = {
+  id: string;
+  symbol: string;
+  short_window: number;
+  long_window: number;
+  period: string;
+  total_return: number;
+  sharpe: number;
+  timestamp: string;
 };
 
 const BACKEND_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
 function App() {
   const [symbol, setSymbol] = useState("AAPL");
-  const [data, setData] = useState<PricePoint[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [prices, setPrices] = useState<PricePoint[]>([]);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
   const [backendStatus, setBackendStatus] = useState<"OK" | "DOWN" | "">("");
+
   const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+
+  const [shortWindow, setShortWindow] = useState(10);
+  const [longWindow, setLongWindow] = useState(20);
+  const [period, setPeriod] = useState("3mo");
+  const [initialCapital, setInitialCapital] = useState(10_000);
+  const [feeRate, setFeeRate] = useState(0.0005);
+
+  const [history, setHistory] = useState<HistoryRow[]>([]);
 
   useEffect(() => {
     const fetchBackendStatus = async () => {
       try {
         const response = await fetch(`${BACKEND_BASE_URL}/health`);
-        if (!response.ok) {
-          throw new Error("health check failed");
-        }
+        if (!response.ok) throw new Error("health check failed");
         const body = await response.json();
         setBackendStatus(body.status === "ok" ? "OK" : "DOWN");
       } catch {
         setBackendStatus("DOWN");
       }
     };
+
     fetchBackendStatus();
+    fetchPrices(symbol);
   }, []);
 
   const fetchPrices = async (ticker: string) => {
-    setLoading(true);
-    setError(null);
+    setLoadingPrices(true);
+    setPriceError(null);
 
     try {
       const response = await fetch(
@@ -97,20 +124,16 @@ function App() {
       }
 
       const body = (await response.json()) as PricesResponse;
-      setData(body.data);
+      setPrices(body.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load prices");
-      setData([]);
+      setPriceError(err instanceof Error ? err.message : "Failed to load prices");
+      setPrices([]);
     } finally {
-      setLoading(false);
+      setLoadingPrices(false);
     }
   };
 
-  useEffect(() => {
-    fetchPrices(symbol);
-  }, []);
-
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSymbolSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const trimmed = symbol.trim().toUpperCase();
     if (!trimmed) {
@@ -120,14 +143,10 @@ function App() {
     fetchPrices(trimmed);
   };
 
-  const lastClose =
-    data.length > 0 ? data[data.length - 1].close.toFixed(2) : null;
-
   const runBacktest = async () => {
     const trimmed = symbol.trim().toUpperCase();
-    if (!trimmed) {
-      return;
-    }
+    if (!trimmed) return;
+
     setSymbol(trimmed);
     setBacktestLoading(true);
     setBacktestError(null);
@@ -135,11 +154,12 @@ function App() {
     try {
       const params = new URLSearchParams({
         symbol: trimmed,
-        short_window: "10",
-        long_window: "20",
-        period: "3mo",
+        short_window: String(shortWindow),
+        long_window: String(longWindow),
+        period,
         interval: "1d",
-        initial_capital: "10000",
+        initial_capital: String(initialCapital),
+        fee_rate: String(feeRate),
       });
 
       const response = await fetch(`${BACKEND_BASE_URL}/backtest/sma?${params.toString()}`);
@@ -150,6 +170,19 @@ function App() {
 
       const body = (await response.json()) as BacktestResponse;
       setBacktestResult(body);
+
+      const totalReturn = body.metrics.total_return ?? 0;
+      const historyRow: HistoryRow = {
+        id: `${Date.now()}-${body.symbol}`,
+        symbol: body.symbol,
+        short_window: shortWindow,
+        long_window: longWindow,
+        period,
+        total_return: totalReturn,
+        sharpe: body.metrics.sharpe ?? 0,
+        timestamp: new Date().toISOString(),
+      };
+      setHistory((prev) => [historyRow, ...prev].slice(0, 30));
     } catch (err) {
       setBacktestError(err instanceof Error ? err.message : "Failed to run backtest");
       setBacktestResult(null);
@@ -157,6 +190,9 @@ function App() {
       setBacktestLoading(false);
     }
   };
+
+  const lastClose =
+    prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
@@ -188,9 +224,9 @@ function App() {
 
       <main className="flex-1 p-6 grid gap-6 md:grid-cols-3">
         <section className="md:col-span-2 border border-slate-800 rounded-2xl p-5 bg-slate-950/60">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <div>
-              <h2 className="text-lg font-semibold">Demo Equity Curve</h2>
+              <h2 className="text-lg font-semibold">Live Prices</h2>
               <p className="text-xs text-slate-400 mt-1">
                 Symbol: {symbol.toUpperCase()}
                 {lastClose && <> • Last close: ${lastClose}</>}
@@ -198,8 +234,8 @@ function App() {
             </div>
 
             <form
-              onSubmit={handleSubmit}
-              className="flex items-center gap-2 text-sm"
+              onSubmit={handleSymbolSubmit}
+              className="flex flex-wrap items-center gap-2 text-sm"
             >
               <input
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-500"
@@ -207,13 +243,67 @@ function App() {
                 onChange={(event) => setSymbol(event.target.value)}
                 placeholder="Ticker e.g. AAPL"
               />
+              <div className="input-group">
+                <label className="input-label">Short SMA</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={shortWindow}
+                  onChange={(e) => setShortWindow(Number(e.target.value))}
+                  className="input-number"
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Long SMA</label>
+                <input
+                  type="number"
+                  min={2}
+                  value={longWindow}
+                  onChange={(e) => setLongWindow(Number(e.target.value))}
+                  className="input-number"
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Period</label>
+                <select
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                  className="input-select"
+                >
+                  <option value="3mo">3mo</option>
+                  <option value="6mo">6mo</option>
+                  <option value="1y">1y</option>
+                </select>
+              </div>
+              <div className="input-group">
+                <label className="input-label">Capital</label>
+                <input
+                  type="number"
+                  min={1000}
+                  step={500}
+                  value={initialCapital}
+                  onChange={(e) => setInitialCapital(Number(e.target.value))}
+                  className="input-number"
+                />
+              </div>
+              <div className="input-group">
+                <label className="input-label">Fee Rate</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.0001}
+                  value={feeRate}
+                  onChange={(e) => setFeeRate(Number(e.target.value))}
+                  className="input-number"
+                />
+              </div>
               <div className="button-group">
                 <button
                   type="submit"
                   className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-xs font-semibold text-slate-950 transition"
-                  disabled={loading}
+                  disabled={loadingPrices}
                 >
-                  {loading ? "Loading..." : "Load"}
+                  {loadingPrices ? "Loading..." : "Load"}
                 </button>
                 <button
                   type="button"
@@ -227,18 +317,18 @@ function App() {
             </form>
           </div>
 
-          {error && (
-            <div className="text-xs text-rose-400 mb-3">Error: {error}</div>
+          {priceError && (
+            <div className="text-xs text-rose-400 mb-3">Error: {priceError}</div>
           )}
 
           <div className="chart-container">
-            {data.length === 0 && !loading ? (
+            {prices.length === 0 && !loadingPrices ? (
               <div className="h-full flex items-center justify-center text-slate-500 text-sm">
                 No data yet. Try loading a symbol.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data}>
+                <AreaChart data={prices}>
                   <defs>
                     <linearGradient id="colorClose" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8} />
@@ -294,10 +384,10 @@ function App() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold">
-                Strategy Backtest: SMA10 / SMA20
+                Strategy Backtest: SMA{shortWindow} / SMA{longWindow}
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Uses Yahoo Finance data (period: 3mo, interval: 1d)
+                Period: {period}, Capital: ${initialCapital.toLocaleString()}
               </p>
             </div>
           </div>
@@ -317,9 +407,7 @@ function App() {
               <div className="metrics-grid">
                 <div className="metric-card">
                   <p className="metric-label">Sharpe Ratio</p>
-                  <p className="metric-value">
-                    {backtestResult.metrics.sharpe.toFixed(2)}
-                  </p>
+                  <p className="metric-value">{backtestResult.metrics.sharpe.toFixed(2)}</p>
                 </div>
                 <div className="metric-card">
                   <p className="metric-label">Max Drawdown</p>
@@ -331,6 +419,18 @@ function App() {
                   <p className="metric-label">Win Rate</p>
                   <p className="metric-value">
                     {(backtestResult.metrics.win_rate * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Total Return</p>
+                  <p className="metric-value">
+                    {((backtestResult.metrics.total_return ?? 0) * 100).toFixed(1)}%
+                  </p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Trades</p>
+                  <p className="metric-value">
+                    {backtestResult.metrics.num_trades ?? backtestResult.trades.length}
                   </p>
                 </div>
               </div>
@@ -392,6 +492,7 @@ function App() {
                           <th>Side</th>
                           <th>Price</th>
                           <th>Shares</th>
+                          <th>Equity After</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -403,6 +504,11 @@ function App() {
                             </td>
                             <td>${trade.price.toFixed(2)}</td>
                             <td>{trade.shares}</td>
+                            <td>
+                              {trade.equity_after_trade
+                                ? `$${trade.equity_after_trade.toFixed(2)}`
+                                : "—"}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -410,6 +516,44 @@ function App() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+        </section>
+
+        <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60 md:col-span-3">
+          <h2 className="text-lg font-semibold mb-2">Backtest History (local)</h2>
+          {history.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Run a backtest to capture a history of your parameter sets and outcomes.
+            </p>
+          ) : (
+            <div className="table-wrapper">
+              <table className="trades-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Symbol</th>
+                    <th>Short / Long</th>
+                    <th>Period</th>
+                    <th>Sharpe</th>
+                    <th>Total Return</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((run) => (
+                    <tr key={run.id}>
+                      <td>{new Date(run.timestamp).toLocaleString()}</td>
+                      <td>{run.symbol}</td>
+                      <td>
+                        {run.short_window}/{run.long_window}
+                      </td>
+                      <td>{run.period}</td>
+                      <td>{run.sharpe.toFixed(2)}</td>
+                      <td>{(run.total_return * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
