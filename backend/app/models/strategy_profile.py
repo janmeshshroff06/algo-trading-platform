@@ -19,3 +19,4 @@ class StrategyProfile(Base):
     interval = Column(String, nullable=False, default="1d")
     initial_capital = Column(Float, nullable=False, default=10_000)
     fee_rate = Column(Float, nullable=False, default=0.0005)
+    order_index = Column(Integer, nullable=False, default=0)

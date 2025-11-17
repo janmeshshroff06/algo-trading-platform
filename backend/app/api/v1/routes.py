@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, Base, engine
@@ -9,6 +10,24 @@ from app.models.backtest import Backtest
 from app.models.strategy_profile import StrategyProfile
 
 Base.metadata.create_all(bind=engine)
+
+# lightweight guard to add order_index when migrating from earlier schema
+with engine.begin() as conn:
+    if engine.dialect.name == "postgresql":
+        conn.execute(
+            text(
+                "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_name='strategy_profiles' AND column_name='order_index') THEN "
+                "ALTER TABLE strategy_profiles ADD COLUMN order_index INTEGER DEFAULT 0; "
+                "END IF; END $$;"
+            )
+        )
+    else:
+        # SQLite: attempt to add column; ignore if it exists
+        try:
+            conn.execute(text("ALTER TABLE strategy_profiles ADD COLUMN order_index INTEGER DEFAULT 0"))
+        except Exception:
+            pass
 
 router = APIRouter()
 
@@ -304,6 +323,12 @@ def create_strategy(profile: dict, db: Session = Depends(get_db)):
     for key in required:
         if key not in profile:
             raise HTTPException(status_code=400, detail=f"Missing required field: {key}")
+
+    if db.query(StrategyProfile).filter(StrategyProfile.name == profile["name"]).first():
+        raise HTTPException(status_code=400, detail="A profile with this name already exists.")
+
+    max_order = db.query(func.max(StrategyProfile.order_index)).scalar() or 0
+
     item = StrategyProfile(
         name=profile["name"],
         symbol=profile.get("symbol", None),
@@ -313,6 +338,7 @@ def create_strategy(profile: dict, db: Session = Depends(get_db)):
         interval=profile.get("interval", "1d"),
         initial_capital=float(profile.get("initial_capital", 10_000)),
         fee_rate=float(profile.get("fee_rate", 0.0005)),
+        order_index=max_order + 1,
     )
     db.add(item)
     db.commit()
@@ -322,7 +348,7 @@ def create_strategy(profile: dict, db: Session = Depends(get_db)):
 
 @router.get("/strategies")
 def list_strategies(db: Session = Depends(get_db)):
-    items = db.query(StrategyProfile).order_by(StrategyProfile.created_at.desc()).all()
+    items = db.query(StrategyProfile).order_by(StrategyProfile.order_index.asc(), StrategyProfile.id.asc()).all()
     return [
         {
             "id": s.id,
@@ -357,3 +383,80 @@ def get_strategy(strategy_id: int, db: Session = Depends(get_db)):
         "initial_capital": s.initial_capital,
         "fee_rate": s.fee_rate,
     }
+
+
+@router.delete("/strategies/{strategy_id}")
+def delete_strategy(strategy_id: int, db: Session = Depends(get_db)):
+    profile = db.query(StrategyProfile).filter(StrategyProfile.id == strategy_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    db.delete(profile)
+    db.commit()
+    return {"status": "deleted"}
+
+
+@router.patch("/strategies/{strategy_id}/rename")
+def rename_strategy(strategy_id: int, data: dict, db: Session = Depends(get_db)):
+    new_name = data.get("name")
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Name cannot be empty")
+    if db.query(StrategyProfile).filter(StrategyProfile.name == new_name).first():
+        raise HTTPException(status_code=400, detail="A profile with this name already exists.")
+    profile = db.query(StrategyProfile).filter(StrategyProfile.id == strategy_id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    profile.name = new_name
+    db.commit()
+    db.refresh(profile)
+    return {"status": "renamed", "name": profile.name}
+
+
+@router.post("/strategies/{strategy_id}/duplicate")
+def duplicate_strategy(strategy_id: int, db: Session = Depends(get_db)):
+    original = db.query(StrategyProfile).filter(StrategyProfile.id == strategy_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    max_order = db.query(func.max(StrategyProfile.order_index)).scalar() or 0
+    base_name = f"{original.name} (Copy)"
+    new_name = base_name
+    suffix = 1
+    while db.query(StrategyProfile).filter(StrategyProfile.name == new_name).first():
+        suffix += 1
+        new_name = f"{base_name} {suffix}"
+    copy = StrategyProfile(
+        name=new_name,
+        symbol=original.symbol,
+        short_window=original.short_window,
+        long_window=original.long_window,
+        period=original.period,
+        interval=original.interval,
+        initial_capital=original.initial_capital,
+        fee_rate=original.fee_rate,
+        order_index=max_order + 1,
+    )
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return {"id": copy.id, "status": "duplicated", "name": copy.name}
+
+
+@router.patch("/strategies/{strategy_id}/move")
+def move_strategy(strategy_id: int, data: dict, db: Session = Depends(get_db)):
+    direction = data.get("direction")
+    if direction not in ["up", "down"]:
+        raise HTTPException(status_code=400, detail="Invalid direction")
+    items = db.query(StrategyProfile).order_by(StrategyProfile.order_index.asc(), StrategyProfile.id.asc()).all()
+    index = next((i for i, p in enumerate(items) if p.id == strategy_id), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if direction == "up" and index == 0:
+        return {"status": "nochange"}
+    if direction == "down" and index == len(items) - 1:
+        return {"status": "nochange"}
+    swap_index = index - 1 if direction == "up" else index + 1
+    items[index].order_index, items[swap_index].order_index = (
+        items[swap_index].order_index,
+        items[index].order_index,
+    )
+    db.commit()
+    return {"status": "reordered"}

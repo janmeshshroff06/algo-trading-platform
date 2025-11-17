@@ -175,6 +175,51 @@ function App() {
     }
   };
 
+  const loadProfile = (profile: StrategyProfile) => {
+    setSelectedProfileId(profile.id);
+    setSymbol(profile.symbol ?? symbol);
+    setShortWindow(profile.short_window);
+    setLongWindow(profile.long_window);
+    setPeriod(profile.period);
+    setInitialCapital(profile.initial_capital);
+    setFeeRate(profile.fee_rate);
+  };
+
+  const deleteProfile = async (id: number) => {
+    if (!confirm("Delete this profile?")) return;
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}`, { method: "DELETE" });
+    fetchProfiles();
+  };
+
+  const renameProfile = async (id: number, currentName: string) => {
+    const newName = prompt("Enter new profile name:", currentName);
+    if (!newName || !newName.trim()) return;
+    const res = await fetch(`${BACKEND_BASE_URL}/strategies/${id}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    if (!res.ok) {
+      alert("Rename failed (duplicate or invalid name).");
+      return;
+    }
+    fetchProfiles();
+  };
+
+  const duplicateProfile = async (id: number) => {
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/duplicate`, { method: "POST" });
+    fetchProfiles();
+  };
+
+  const moveProfile = async (id: number, direction: "up" | "down") => {
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/move`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction }),
+    });
+    fetchProfiles();
+  };
+
   useEffect(() => {
     const fetchBackendStatus = async () => {
       try {
@@ -461,31 +506,7 @@ function App() {
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60">
           <h2 className="text-lg font-semibold mb-2">Strategy Profiles</h2>
           <div className="profiles-list">
-            <select
-              className="input-select w-full"
-              value={selectedProfileId ?? ""}
-              onChange={(e) => {
-                const id = e.target.value ? Number(e.target.value) : null;
-                setSelectedProfileId(id);
-                const profile = profiles.find((p) => p.id === id);
-                if (profile) {
-                  setSymbol(profile.symbol ?? symbol);
-                  setShortWindow(profile.short_window);
-                  setLongWindow(profile.long_window);
-                  setPeriod(profile.period);
-                  setInitialCapital(profile.initial_capital);
-                  setFeeRate(profile.fee_rate);
-                }
-              }}
-            >
-              <option value="">Select a profile</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.short_window}/{p.long_window}, {p.period})
-                </option>
-              ))}
-            </select>
-            <div className="button-group" style={{ marginTop: "0.75rem" }}>
+            <div className="button-group" style={{ marginBottom: "0.75rem" }}>
               <input
                 className="input-number flex-1"
                 placeholder="Save current settings as..."
@@ -500,35 +521,53 @@ function App() {
                 Save Profile
               </button>
             </div>
-            <button
-              type="button"
-              className="px-3 py-1 rounded-lg border border-sky-400 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 transition"
-              style={{ marginTop: "0.5rem" }}
-              onClick={() => {
-                if (selectedProfileId) {
-                  const profile = profiles.find((p) => p.id === selectedProfileId);
-                  if (profile) {
-                    const cfg: BacktestConfig = {
-                      symbol: profile.symbol ?? symbol,
-                      shortWindow: profile.short_window,
-                      longWindow: profile.long_window,
-                      period: profile.period,
-                      initialCapital: profile.initial_capital,
-                      feeRate: profile.fee_rate,
-                    };
-                    setSymbol(cfg.symbol);
-                    setShortWindow(cfg.shortWindow);
-                    setLongWindow(cfg.longWindow);
-                    setPeriod(cfg.period);
-                    setInitialCapital(cfg.initialCapital);
-                    setFeeRate(cfg.feeRate);
-                    runBacktest(cfg);
-                  }
-                }
-              }}
-            >
-              Load & Run Profile
-            </button>
+
+            {profiles.length === 0 ? (
+              <p className="text-sm text-slate-400">No profiles yet. Save one above.</p>
+            ) : (
+              <div className="profile-list">
+                {profiles.map((p) => (
+                  <div
+                    key={p.id}
+                    className={`profile-row ${selectedProfileId === p.id ? "active-row" : ""}`}
+                  >
+                    <div className="profile-meta">
+                      <div className="profile-name">{p.name}</div>
+                      <div className="profile-sub">
+                        {p.short_window}/{p.long_window} • {p.period} • $
+                        {p.initial_capital.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="profile-actions">
+                      <button onClick={() => loadProfile(p)}>Load</button>
+                      <button
+                        onClick={() => {
+                          loadProfile(p);
+                          const cfg: BacktestConfig = {
+                            symbol: p.symbol ?? symbol,
+                            shortWindow: p.short_window,
+                            longWindow: p.long_window,
+                            period: p.period,
+                            initialCapital: p.initial_capital,
+                            feeRate: p.fee_rate,
+                          };
+                          runBacktest(cfg);
+                        }}
+                      >
+                        Run
+                      </button>
+                      <button onClick={() => renameProfile(p.id, p.name)}>Rename</button>
+                      <button onClick={() => duplicateProfile(p.id)}>Duplicate</button>
+                      <button onClick={() => moveProfile(p.id, "up")}>↑</button>
+                      <button onClick={() => moveProfile(p.id, "down")}>↓</button>
+                      <button className="danger" onClick={() => deleteProfile(p.id)}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 

@@ -236,6 +236,64 @@ h1 {
   background: rgba(56, 189, 248, 0.25);
 }
 
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #1e293b;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.profile-name {
+  font-weight: 600;
+}
+
+.profile-sub {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.profile-actions button {
+  padding: 0.3rem 0.55rem;
+  border-radius: 0.35rem;
+  border: 1px solid #334155;
+  background: rgba(51, 65, 85, 0.2);
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.profile-actions button:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+}
+
+.profile-actions .danger {
+  border-color: #fb7185;
+  color: #fecdd3;
+  background: rgba(248, 113, 113, 0.1);
+}
+
 .trade-buy {
   color: #34d399;
   font-weight: 600;
