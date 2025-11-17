@@ -59,15 +59,39 @@ type BacktestResponse = {
   metrics: BacktestMetrics;
 };
 
-type HistoryRow = {
-  id: string;
+type HistoryItem = {
+  id: number;
+  created_at: string;
   symbol: string;
   short_window: number;
   long_window: number;
   period: string;
-  total_return: number;
-  sharpe: number;
-  timestamp: string;
+  interval: string;
+  initial_capital: number;
+  fee_rate: number;
+  metrics: BacktestMetrics;
+};
+
+type BacktestConfig = {
+  symbol: string;
+  shortWindow: number;
+  longWindow: number;
+  period: string;
+  initialCapital: number;
+  feeRate: number;
+};
+
+type StrategyProfile = {
+  id: number;
+  name: string;
+  created_at: string;
+  symbol?: string | null;
+  short_window: number;
+  long_window: number;
+  period: string;
+  interval: string;
+  initial_capital: number;
+  fee_rate: number;
 };
 
 const BACKEND_BASE_URL = "http://127.0.0.1:8000/api/v1";
@@ -89,7 +113,11 @@ function App() {
   const [initialCapital, setInitialCapital] = useState(10_000);
   const [feeRate, setFeeRate] = useState(0.0005);
 
-  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [selectedBacktestId, setSelectedBacktestId] = useState<number | null>(null);
+  const [profiles, setProfiles] = useState<StrategyProfile[]>([]);
+  const [newProfileName, setNewProfileName] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
 
   const fetchHistory = async (sym?: string) => {
     try {
@@ -103,18 +131,45 @@ function App() {
       if (!response.ok) {
         throw new Error(`History fetch failed (${response.status})`);
       }
-      const body = (await response.json()) as any[];
-      const mapped: HistoryRow[] = body.map((run) => ({
-        id: String(run.id),
-        symbol: run.symbol,
-        short_window: run.short_window,
-        long_window: run.long_window,
-        period: run.period,
-        total_return: run.metrics?.total_return ?? 0,
-        sharpe: run.metrics?.sharpe ?? 0,
-        timestamp: run.created_at,
-      }));
-      setHistory(mapped);
+      const body = (await response.json()) as HistoryItem[];
+      setHistory(body);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchProfiles = async () => {
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/strategies`);
+      if (!response.ok) throw new Error(`Profiles fetch failed (${response.status})`);
+      const body = (await response.json()) as StrategyProfile[];
+      setProfiles(body);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!newProfileName.trim()) return;
+    const payload = {
+      name: newProfileName.trim(),
+      symbol,
+      short_window: shortWindow,
+      long_window: longWindow,
+      period,
+      interval: "1d",
+      initial_capital: initialCapital,
+      fee_rate: feeRate,
+    };
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/strategies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      setNewProfileName("");
+      fetchProfiles();
     } catch (err) {
       console.error(err);
     }
@@ -135,6 +190,7 @@ function App() {
     fetchBackendStatus();
     fetchPrices(symbol);
     fetchHistory(symbol);
+    fetchProfiles();
   }, []);
 
   const fetchPrices = async (ticker: string) => {
@@ -173,23 +229,31 @@ function App() {
     fetchPrices(trimmed);
   };
 
-  const runBacktest = async () => {
-    const trimmed = symbol.trim().toUpperCase();
-    if (!trimmed) return;
+  const runBacktest = async (config?: BacktestConfig) => {
+    const cfg: BacktestConfig = config ?? {
+      symbol: symbol.trim().toUpperCase(),
+      shortWindow: shortWindow,
+      longWindow: longWindow,
+      period,
+      initialCapital,
+      feeRate,
+    };
 
-    setSymbol(trimmed);
+    if (!cfg.symbol) return;
+
+    setSymbol(cfg.symbol);
     setBacktestLoading(true);
     setBacktestError(null);
 
     try {
       const params = new URLSearchParams({
-        symbol: trimmed,
-        short_window: String(shortWindow),
-        long_window: String(longWindow),
-        period,
+        symbol: cfg.symbol,
+        short_window: String(cfg.shortWindow),
+        long_window: String(cfg.longWindow),
+        period: cfg.period,
         interval: "1d",
-        initial_capital: String(initialCapital),
-        fee_rate: String(feeRate),
+        initial_capital: String(cfg.initialCapital),
+        fee_rate: String(cfg.feeRate),
       });
 
       const response = await fetch(`${BACKEND_BASE_URL}/backtest/sma?${params.toString()}`);
@@ -201,10 +265,12 @@ function App() {
       const body = (await response.json()) as BacktestResponse;
       setBacktestResult(body);
 
-      fetchHistory(symbol);
+      setSelectedBacktestId(body.id ?? null);
+      fetchHistory(cfg.symbol);
     } catch (err) {
       setBacktestError(err instanceof Error ? err.message : "Failed to run backtest");
       setBacktestResult(null);
+      setSelectedBacktestId(null);
     } finally {
       setBacktestLoading(false);
     }
@@ -393,10 +459,77 @@ function App() {
         </section>
 
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60">
-          <h2 className="text-lg font-semibold mb-2">Current Positions</h2>
-          <p className="text-sm text-slate-400">
-            No positions yet. Run a backtest or start a strategy.
-          </p>
+          <h2 className="text-lg font-semibold mb-2">Strategy Profiles</h2>
+          <div className="profiles-list">
+            <select
+              className="input-select w-full"
+              value={selectedProfileId ?? ""}
+              onChange={(e) => {
+                const id = e.target.value ? Number(e.target.value) : null;
+                setSelectedProfileId(id);
+                const profile = profiles.find((p) => p.id === id);
+                if (profile) {
+                  setSymbol(profile.symbol ?? symbol);
+                  setShortWindow(profile.short_window);
+                  setLongWindow(profile.long_window);
+                  setPeriod(profile.period);
+                  setInitialCapital(profile.initial_capital);
+                  setFeeRate(profile.fee_rate);
+                }
+              }}
+            >
+              <option value="">Select a profile</option>
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.short_window}/{p.long_window}, {p.period})
+                </option>
+              ))}
+            </select>
+            <div className="button-group" style={{ marginTop: "0.75rem" }}>
+              <input
+                className="input-number flex-1"
+                placeholder="Save current settings as..."
+                value={newProfileName}
+                onChange={(e) => setNewProfileName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-xs font-semibold text-slate-950 transition"
+                onClick={saveProfile}
+              >
+                Save Profile
+              </button>
+            </div>
+            <button
+              type="button"
+              className="px-3 py-1 rounded-lg border border-sky-400 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 transition"
+              style={{ marginTop: "0.5rem" }}
+              onClick={() => {
+                if (selectedProfileId) {
+                  const profile = profiles.find((p) => p.id === selectedProfileId);
+                  if (profile) {
+                    const cfg: BacktestConfig = {
+                      symbol: profile.symbol ?? symbol,
+                      shortWindow: profile.short_window,
+                      longWindow: profile.long_window,
+                      period: profile.period,
+                      initialCapital: profile.initial_capital,
+                      feeRate: profile.fee_rate,
+                    };
+                    setSymbol(cfg.symbol);
+                    setShortWindow(cfg.shortWindow);
+                    setLongWindow(cfg.longWindow);
+                    setPeriod(cfg.period);
+                    setInitialCapital(cfg.initialCapital);
+                    setFeeRate(cfg.feeRate);
+                    runBacktest(cfg);
+                  }
+                }
+              }}
+            >
+              Load & Run Profile
+            </button>
+          </div>
         </section>
 
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60 md:col-span-3">
@@ -540,7 +673,7 @@ function App() {
         </section>
 
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60 md:col-span-3">
-          <h2 className="text-lg font-semibold mb-2">Backtest History (local)</h2>
+          <h2 className="text-lg font-semibold mb-2">Backtest History</h2>
           {history.length === 0 ? (
             <p className="text-sm text-slate-400">
               Run a backtest to capture a history of your parameter sets and outcomes.
@@ -556,21 +689,51 @@ function App() {
                     <th>Period</th>
                     <th>Sharpe</th>
                     <th>Total Return</th>
+                    <th>Replay</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((run) => (
-                    <tr key={run.id}>
-                      <td>{new Date(run.timestamp).toLocaleString()}</td>
-                      <td>{run.symbol}</td>
-                      <td>
-                        {run.short_window}/{run.long_window}
-                      </td>
-                      <td>{run.period}</td>
-                      <td>{run.sharpe.toFixed(2)}</td>
-                      <td>{(run.total_return * 100).toFixed(1)}%</td>
-                    </tr>
-                  ))}
+                  {history.map((run) => {
+                    const isActive = run.id === selectedBacktestId;
+                    return (
+                      <tr key={run.id} className={isActive ? "active-row" : ""}>
+                        <td>{new Date(run.created_at).toLocaleString()}</td>
+                        <td>{run.symbol}</td>
+                        <td>
+                          {run.short_window}/{run.long_window}
+                        </td>
+                        <td>{run.period}</td>
+                        <td>{run.metrics.sharpe.toFixed(2)}</td>
+                        <td>{(run.metrics.total_return * 100).toFixed(1)}%</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="replay-btn"
+                            onClick={() => {
+                              const cfg: BacktestConfig = {
+                                symbol: run.symbol,
+                                shortWindow: run.short_window,
+                                longWindow: run.long_window,
+                                period: run.period,
+                                initialCapital: run.initial_capital,
+                                feeRate: run.fee_rate,
+                              };
+                              setSymbol(cfg.symbol);
+                              setShortWindow(cfg.shortWindow);
+                              setLongWindow(cfg.longWindow);
+                              setPeriod(cfg.period);
+                              setInitialCapital(cfg.initialCapital);
+                              setFeeRate(cfg.feeRate);
+                              setSelectedBacktestId(run.id);
+                              runBacktest(cfg);
+                            }}
+                          >
+                            Replay
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

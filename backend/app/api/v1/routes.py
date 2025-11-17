@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, Base, engine
 from app.models.backtest import Backtest
+from app.models.strategy_profile import StrategyProfile
 
 Base.metadata.create_all(bind=engine)
 
@@ -294,4 +295,65 @@ def get_backtest(backtest_id: int, db: Session = Depends(get_db)):
             "win_rate": bt.win_rate,
             "num_trades": bt.num_trades,
         },
+    }
+
+
+@router.post("/strategies")
+def create_strategy(profile: dict, db: Session = Depends(get_db)):
+    required = ["name", "short_window", "long_window", "period", "interval", "initial_capital", "fee_rate"]
+    for key in required:
+        if key not in profile:
+            raise HTTPException(status_code=400, detail=f"Missing required field: {key}")
+    item = StrategyProfile(
+        name=profile["name"],
+        symbol=profile.get("symbol", None),
+        short_window=int(profile["short_window"]),
+        long_window=int(profile["long_window"]),
+        period=profile.get("period", "3mo"),
+        interval=profile.get("interval", "1d"),
+        initial_capital=float(profile.get("initial_capital", 10_000)),
+        fee_rate=float(profile.get("fee_rate", 0.0005)),
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {"id": item.id, "status": "saved"}
+
+
+@router.get("/strategies")
+def list_strategies(db: Session = Depends(get_db)):
+    items = db.query(StrategyProfile).order_by(StrategyProfile.created_at.desc()).all()
+    return [
+        {
+            "id": s.id,
+            "created_at": s.created_at.isoformat(),
+            "name": s.name,
+            "symbol": s.symbol,
+            "short_window": s.short_window,
+            "long_window": s.long_window,
+            "period": s.period,
+            "interval": s.interval,
+            "initial_capital": s.initial_capital,
+            "fee_rate": s.fee_rate,
+        }
+        for s in items
+    ]
+
+
+@router.get("/strategies/{strategy_id}")
+def get_strategy(strategy_id: int, db: Session = Depends(get_db)):
+    s = db.query(StrategyProfile).filter(StrategyProfile.id == strategy_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    return {
+        "id": s.id,
+        "created_at": s.created_at.isoformat(),
+        "name": s.name,
+        "symbol": s.symbol,
+        "short_window": s.short_window,
+        "long_window": s.long_window,
+        "period": s.period,
+        "interval": s.interval,
+        "initial_capital": s.initial_capital,
+        "fee_rate": s.fee_rate,
     }
