@@ -1,9 +1,23 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from sqlalchemy.orm import Session
+
+from app.db.session import SessionLocal, Base, engine
+from app.models.backtest import Backtest
+
+Base.metadata.create_all(bind=engine)
 
 router = APIRouter()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @router.get("/health")
@@ -80,6 +94,7 @@ async def sma_crossover_backtest(
     interval: str = "1d",
     initial_capital: float = Query(10_000, gt=0),
     fee_rate: float = Query(0.0005, ge=0.0),  # e.g., 5 bps per trade
+    db: Session = Depends(get_db),
 ):
     """
     Simple SMA crossover backtest that goes long when short SMA crosses above long SMA.
@@ -184,6 +199,24 @@ async def sma_crossover_backtest(
     total_return = (equity_curve[-1]["equity"] / initial_capital) - 1 if equity_curve else 0.0
     num_trades = completed_trades
 
+    record = Backtest(
+        symbol=symbol.upper(),
+        short_window=short_window,
+        long_window=long_window,
+        period=period,
+        interval=interval,
+        initial_capital=initial_capital,
+        fee_rate=fee_rate,
+        sharpe=round(float(sharpe), 3),
+        max_drawdown=round(max_drawdown, 4),
+        total_return=round(total_return, 4),
+        win_rate=round(win_rate, 3),
+        num_trades=num_trades,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
     return {
         "symbol": symbol.upper(),
         "short_window": short_window,
@@ -200,5 +233,65 @@ async def sma_crossover_backtest(
             "win_rate": round(win_rate, 3),
             "total_return": round(total_return, 4),
             "num_trades": num_trades,
+        },
+        "id": record.id,
+        "created_at": record.created_at.isoformat(),
+    }
+
+
+@router.get("/backtests")
+def list_backtests(
+    symbol: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Backtest)
+    if symbol:
+        query = query.filter(Backtest.symbol == symbol.upper())
+    results = query.order_by(Backtest.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": bt.id,
+            "created_at": bt.created_at.isoformat(),
+            "symbol": bt.symbol,
+            "short_window": bt.short_window,
+            "long_window": bt.long_window,
+            "period": bt.period,
+            "interval": bt.interval,
+            "initial_capital": bt.initial_capital,
+            "fee_rate": bt.fee_rate,
+            "metrics": {
+                "sharpe": bt.sharpe,
+                "max_drawdown": bt.max_drawdown,
+                "total_return": bt.total_return,
+                "win_rate": bt.win_rate,
+                "num_trades": bt.num_trades,
+            },
+        }
+        for bt in results
+    ]
+
+
+@router.get("/backtests/{backtest_id}")
+def get_backtest(backtest_id: int, db: Session = Depends(get_db)):
+    bt = db.query(Backtest).filter(Backtest.id == backtest_id).first()
+    if not bt:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    return {
+        "id": bt.id,
+        "created_at": bt.created_at.isoformat(),
+        "symbol": bt.symbol,
+        "short_window": bt.short_window,
+        "long_window": bt.long_window,
+        "period": bt.period,
+        "interval": bt.interval,
+        "initial_capital": bt.initial_capital,
+        "fee_rate": bt.fee_rate,
+        "metrics": {
+            "sharpe": bt.sharpe,
+            "max_drawdown": bt.max_drawdown,
+            "total_return": bt.total_return,
+            "win_rate": bt.win_rate,
+            "num_trades": bt.num_trades,
         },
     }

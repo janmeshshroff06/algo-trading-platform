@@ -91,6 +91,35 @@ function App() {
 
   const [history, setHistory] = useState<HistoryRow[]>([]);
 
+  const fetchHistory = async (sym?: string) => {
+    try {
+      const params = new URLSearchParams({
+        limit: "20",
+      });
+      if (sym) {
+        params.set("symbol", sym.toUpperCase());
+      }
+      const response = await fetch(`${BACKEND_BASE_URL}/backtests?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error(`History fetch failed (${response.status})`);
+      }
+      const body = (await response.json()) as any[];
+      const mapped: HistoryRow[] = body.map((run) => ({
+        id: String(run.id),
+        symbol: run.symbol,
+        short_window: run.short_window,
+        long_window: run.long_window,
+        period: run.period,
+        total_return: run.metrics?.total_return ?? 0,
+        sharpe: run.metrics?.sharpe ?? 0,
+        timestamp: run.created_at,
+      }));
+      setHistory(mapped);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     const fetchBackendStatus = async () => {
       try {
@@ -105,6 +134,7 @@ function App() {
 
     fetchBackendStatus();
     fetchPrices(symbol);
+    fetchHistory(symbol);
   }, []);
 
   const fetchPrices = async (ticker: string) => {
@@ -171,18 +201,7 @@ function App() {
       const body = (await response.json()) as BacktestResponse;
       setBacktestResult(body);
 
-      const totalReturn = body.metrics.total_return ?? 0;
-      const historyRow: HistoryRow = {
-        id: `${Date.now()}-${body.symbol}`,
-        symbol: body.symbol,
-        short_window: shortWindow,
-        long_window: longWindow,
-        period,
-        total_return: totalReturn,
-        sharpe: body.metrics.sharpe ?? 0,
-        timestamp: new Date().toISOString(),
-      };
-      setHistory((prev) => [historyRow, ...prev].slice(0, 30));
+      fetchHistory(symbol);
     } catch (err) {
       setBacktestError(err instanceof Error ? err.message : "Failed to run backtest");
       setBacktestResult(null);
