@@ -8,6 +8,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Home from "./pages/Home";
 
 type PricePoint = {
   timestamp: string;
@@ -59,6 +61,8 @@ type BacktestResponse = {
   equity_curve: EquityPoint[];
   trades: Trade[];
   metrics: BacktestMetrics;
+  id?: number;
+  created_at?: string;
 };
 
 type HistoryItem = {
@@ -104,7 +108,7 @@ type StrategyProfile = {
 
 const BACKEND_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
-function App() {
+function BacktestPage() {
   const [symbol, setSymbol] = useState("AAPL");
   const [prices, setPrices] = useState<PricePoint[]>([]);
   const [loadingPrices, setLoadingPrices] = useState(false);
@@ -203,63 +207,6 @@ function App() {
     }
   };
 
-  const loadProfile = (profile: StrategyProfile) => {
-    setSelectedProfileId(profile.id);
-    setSymbol(profile.symbol ?? symbol);
-    setShortWindow(profile.short_window);
-    setLongWindow(profile.long_window);
-    setPeriod(profile.period);
-    setInitialCapital(profile.initial_capital);
-    setFeeRate(profile.fee_rate);
-    if (profile.strategy_type) {
-      setStrategyType(profile.strategy_type);
-    }
-    const params = profile.strategy_params || {};
-    if (params.ema_fast) setEmaFast(params.ema_fast);
-    if (params.ema_slow) setEmaSlow(params.ema_slow);
-    if (params.rsi_window) setRsiWindow(params.rsi_window);
-    if (params.rsi_overbought) setRsiOverbought(params.rsi_overbought);
-    if (params.rsi_oversold) setRsiOversold(params.rsi_oversold);
-    if (params.macd_fast) setMacdFast(params.macd_fast);
-    if (params.macd_slow) setMacdSlow(params.macd_slow);
-    if (params.macd_signal) setMacdSignal(params.macd_signal);
-  };
-
-  const deleteProfile = async (id: number) => {
-    if (!confirm("Delete this profile?")) return;
-    await fetch(`${BACKEND_BASE_URL}/strategies/${id}`, { method: "DELETE" });
-    fetchProfiles();
-  };
-
-  const renameProfile = async (id: number, currentName: string) => {
-    const newName = prompt("Enter new profile name:", currentName);
-    if (!newName || !newName.trim()) return;
-    const res = await fetch(`${BACKEND_BASE_URL}/strategies/${id}/rename`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName.trim() }),
-    });
-    if (!res.ok) {
-      alert("Rename failed (duplicate or invalid name).");
-      return;
-    }
-    fetchProfiles();
-  };
-
-  const duplicateProfile = async (id: number) => {
-    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/duplicate`, { method: "POST" });
-    fetchProfiles();
-  };
-
-  const moveProfile = async (id: number, direction: "up" | "down") => {
-    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/move`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ direction }),
-    });
-    fetchProfiles();
-  };
-
   useEffect(() => {
     const fetchBackendStatus = async () => {
       try {
@@ -284,9 +231,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `${BACKEND_BASE_URL}/prices/${encodeURIComponent(
-          ticker
-        )}?period=1mo&interval=1d`
+        `${BACKEND_BASE_URL}/prices/${encodeURIComponent(ticker)}?period=1mo&interval=1d`
       );
 
       if (!response.ok) {
@@ -384,16 +329,70 @@ function App() {
     }
   };
 
-  const lastClose =
-    prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
+  const lastClose = prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
+
+  const loadProfile = (profile: StrategyProfile) => {
+    setSelectedProfileId(profile.id);
+    setSymbol(profile.symbol ?? symbol);
+    setShortWindow(profile.short_window);
+    setLongWindow(profile.long_window);
+    setPeriod(profile.period);
+    setInitialCapital(profile.initial_capital);
+    setFeeRate(profile.fee_rate);
+    if (profile.strategy_type) {
+      setStrategyType(profile.strategy_type);
+    }
+    const params = profile.strategy_params || {};
+    if (params.ema_fast) setEmaFast(params.ema_fast);
+    if (params.ema_slow) setEmaSlow(params.ema_slow);
+    if (params.rsi_window) setRsiWindow(params.rsi_window);
+    if (params.rsi_overbought) setRsiOverbought(params.rsi_overbought);
+    if (params.rsi_oversold) setRsiOversold(params.rsi_oversold);
+    if (params.macd_fast) setMacdFast(params.macd_fast);
+    if (params.macd_slow) setMacdSlow(params.macd_slow);
+    if (params.macd_signal) setMacdSignal(params.macd_signal);
+  };
+
+  const deleteProfile = async (id: number) => {
+    if (!confirm("Delete this profile?")) return;
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}`, { method: "DELETE" });
+    fetchProfiles();
+  };
+
+  const renameProfile = async (id: number, currentName: string) => {
+    const newName = prompt("Enter new profile name:", currentName);
+    if (!newName || !newName.trim()) return;
+    const res = await fetch(`${BACKEND_BASE_URL}/strategies/${id}/rename`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    if (!res.ok) {
+      alert("Rename failed (duplicate or invalid name).");
+      return;
+    }
+    fetchProfiles();
+  };
+
+  const duplicateProfile = async (id: number) => {
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/duplicate`, { method: "POST" });
+    fetchProfiles();
+  };
+
+  const moveProfile = async (id: number, direction: "up" | "down") => {
+    await fetch(`${BACKEND_BASE_URL}/strategies/${id}/move`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ direction }),
+    });
+    fetchProfiles();
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
         <div>
-          <p className="text-xs tracking-[0.2em] text-slate-500 uppercase">
-            Paper Trading • MVP
-          </p>
+          <p className="text-xs tracking-[0.2em] text-slate-500 uppercase">Paper Trading • MVP</p>
           <h1 className="text-2xl font-bold mt-1">Algo Trading Platform</h1>
         </div>
 
@@ -408,9 +407,7 @@ function App() {
             }`}
           >
             BACKEND STATUS{" "}
-            <span className="ml-1">
-              {backendStatus === "" ? "..." : backendStatus}
-            </span>
+            <span className="ml-1">{backendStatus === "" ? "..." : backendStatus}</span>
           </span>
         </div>
       </header>
@@ -426,10 +423,7 @@ function App() {
               </p>
             </div>
 
-            <form
-              onSubmit={handleSymbolSubmit}
-              className="flex flex-wrap items-center gap-2 text-sm"
-            >
+            <form onSubmit={handleSymbolSubmit} className="flex flex-wrap items-center gap-2 text-sm">
               <input
                 className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-sky-500"
                 value={symbol}
@@ -438,11 +432,7 @@ function App() {
               />
               <div className="input-group">
                 <label className="input-label">Strategy</label>
-                <select
-                  value={strategyType}
-                  onChange={(e) => setStrategyType(e.target.value)}
-                  className="input-select"
-                >
+                <select value={strategyType} onChange={(e) => setStrategyType(e.target.value)} className="input-select">
                   <option value="sma">SMA Crossover</option>
                   <option value="ema">EMA Crossover</option>
                   <option value="rsi">RSI</option>
@@ -564,11 +554,7 @@ function App() {
               )}
               <div className="input-group">
                 <label className="input-label">Period</label>
-                <select
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                  className="input-select"
-                >
+                <select value={period} onChange={(e) => setPeriod(e.target.value)} className="input-select">
                   <option value="3mo">3mo</option>
                   <option value="6mo">6mo</option>
                   <option value="1y">1y</option>
@@ -616,9 +602,7 @@ function App() {
             </form>
           </div>
 
-          {priceError && (
-            <div className="text-xs text-rose-400 mb-3">Error: {priceError}</div>
-          )}
+          {priceError && <div className="text-xs text-rose-400 mb-3">Error: {priceError}</div>}
 
           <div className="chart-container">
             {prices.length === 0 && !loadingPrices ? (
@@ -634,21 +618,9 @@ function App() {
                       <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#1f2937"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={(value) => value.slice(5, 10)}
-                    tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "#9ca3af" }}
-                    tickFormatter={(value) => `$${value.toFixed(0)}`}
-                    width={60}
-                  />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                  <XAxis dataKey="timestamp" tickFormatter={(value) => value.slice(5, 10)} tick={{ fontSize: 10, fill: "#9ca3af" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} tickFormatter={(value) => `$${value.toFixed(0)}`} width={60} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "#020617",
@@ -659,13 +631,7 @@ function App() {
                     labelFormatter={(label) => `Date: ${label.slice(0, 10)}`}
                     formatter={(value: any) => [`$${value.toFixed(2)}`, "Close"]}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="close"
-                    stroke="#38bdf8"
-                    fillOpacity={1}
-                    fill="url(#colorClose)"
-                  />
+                  <Area type="monotone" dataKey="close" stroke="#38bdf8" fillOpacity={1} fill="url(#colorClose)" />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -756,7 +722,7 @@ function App() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold">
-                Strategy Backtest: SMA{shortWindow} / SMA{longWindow}
+                Strategy Backtest: {(strategyType ?? "sma").toUpperCase()} {shortWindow}/{longWindow}
               </h2>
               <p className="text-xs text-slate-400 mt-1">
                 Period: {period}, Capital: ${initialCapital.toLocaleString()}
@@ -764,14 +730,10 @@ function App() {
             </div>
           </div>
 
-          {backtestError && (
-            <div className="text-xs text-rose-400 mb-3">Error: {backtestError}</div>
-          )}
+          {backtestError && <div className="text-xs text-rose-400 mb-3">Error: {backtestError}</div>}
 
           {!backtestResult && !backtestLoading && (
-            <p className="text-sm text-slate-400">
-              Run the backtest to view equity curve, metrics, and trade history.
-            </p>
+            <p className="text-sm text-slate-400">Run the backtest to view equity curve, metrics, and trade history.</p>
           )}
 
           {backtestResult && (
@@ -783,21 +745,15 @@ function App() {
                 </div>
                 <div className="metric-card">
                   <p className="metric-label">Max Drawdown</p>
-                  <p className="metric-value">
-                    {(backtestResult.metrics.max_drawdown * 100).toFixed(1)}%
-                  </p>
+                  <p className="metric-value">{(backtestResult.metrics.max_drawdown * 100).toFixed(1)}%</p>
                 </div>
                 <div className="metric-card">
                   <p className="metric-label">Win Rate</p>
-                  <p className="metric-value">
-                    {(backtestResult.metrics.win_rate * 100).toFixed(1)}%
-                  </p>
+                  <p className="metric-value">{(backtestResult.metrics.win_rate * 100).toFixed(1)}%</p>
                 </div>
                 <div className="metric-card">
                   <p className="metric-label">Total Return</p>
-                  <p className="metric-value">
-                    {((backtestResult.metrics.total_return ?? 0) * 100).toFixed(1)}%
-                  </p>
+                  <p className="metric-value">{((backtestResult.metrics.total_return ?? 0) * 100).toFixed(1)}%</p>
                 </div>
                 <div className="metric-card">
                   <p className="metric-label">Trades</p>
@@ -839,13 +795,7 @@ function App() {
                         labelFormatter={(label) => `Date: ${label.slice(0, 10)}`}
                         formatter={(value: any) => [`$${value.toFixed(2)}`, "Equity"]}
                       />
-                      <Area
-                        type="monotone"
-                        dataKey="equity"
-                        stroke="#34d399"
-                        fillOpacity={1}
-                        fill="url(#colorEquity)"
-                      />
+                      <Area type="monotone" dataKey="equity" stroke="#34d399" fillOpacity={1} fill="url(#colorEquity)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -871,16 +821,10 @@ function App() {
                         {backtestResult.trades.map((trade) => (
                           <tr key={`${trade.timestamp}-${trade.side}`}>
                             <td>{trade.timestamp.slice(0, 10)}</td>
-                            <td className={trade.side === "BUY" ? "trade-buy" : "trade-sell"}>
-                              {trade.side}
-                            </td>
+                            <td className={trade.side === "BUY" ? "trade-buy" : "trade-sell"}>{trade.side}</td>
                             <td>${trade.price.toFixed(2)}</td>
                             <td>{trade.shares}</td>
-                            <td>
-                              {trade.equity_after_trade
-                                ? `$${trade.equity_after_trade.toFixed(2)}`
-                                : "—"}
-                            </td>
+                            <td>{trade.equity_after_trade ? `$${trade.equity_after_trade.toFixed(2)}` : "—"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -895,9 +839,7 @@ function App() {
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60 md:col-span-3">
           <h2 className="text-lg font-semibold mb-2">Backtest History</h2>
           {history.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              Run a backtest to capture a history of your parameter sets and outcomes.
-            </p>
+            <p className="text-sm text-slate-400">Run a backtest to capture a history of your parameter sets and outcomes.</p>
           ) : (
             <div className="table-wrapper">
               <table className="trades-table">
@@ -978,4 +920,18 @@ function App() {
   );
 }
 
-export default App;
+function HistoryPage() {
+  return <BacktestPage />;
+}
+
+export default function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/backtest" element={<BacktestPage />} />
+        <Route path="/history" element={<HistoryPage />} />
+      </Routes>
+    </Router>
+  );
+}
