@@ -54,6 +54,8 @@ type BacktestResponse = {
   interval?: string;
   initial_capital?: number;
   fee_rate?: number;
+  strategy_type?: string;
+  strategy_params?: Record<string, any>;
   equity_curve: EquityPoint[];
   trades: Trade[];
   metrics: BacktestMetrics;
@@ -63,6 +65,8 @@ type HistoryItem = {
   id: number;
   created_at: string;
   symbol: string;
+  strategy_type?: string;
+  strategy_params?: Record<string, any>;
   short_window: number;
   long_window: number;
   period: string;
@@ -74,11 +78,13 @@ type HistoryItem = {
 
 type BacktestConfig = {
   symbol: string;
+  strategyType: string;
   shortWindow: number;
   longWindow: number;
   period: string;
   initialCapital: number;
   feeRate: number;
+  strategyParams?: Record<string, any>;
 };
 
 type StrategyProfile = {
@@ -86,6 +92,8 @@ type StrategyProfile = {
   name: string;
   created_at: string;
   symbol?: string | null;
+  strategy_type?: string;
+  strategy_params?: Record<string, any>;
   short_window: number;
   long_window: number;
   period: string;
@@ -107,11 +115,20 @@ function App() {
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
 
+  const [strategyType, setStrategyType] = useState("sma");
   const [shortWindow, setShortWindow] = useState(10);
   const [longWindow, setLongWindow] = useState(20);
   const [period, setPeriod] = useState("3mo");
   const [initialCapital, setInitialCapital] = useState(10_000);
   const [feeRate, setFeeRate] = useState(0.0005);
+  const [emaFast, setEmaFast] = useState(10);
+  const [emaSlow, setEmaSlow] = useState(20);
+  const [rsiWindow, setRsiWindow] = useState(14);
+  const [rsiOverbought, setRsiOverbought] = useState(70);
+  const [rsiOversold, setRsiOversold] = useState(30);
+  const [macdFast, setMacdFast] = useState(12);
+  const [macdSlow, setMacdSlow] = useState(26);
+  const [macdSignal, setMacdSignal] = useState(9);
 
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selectedBacktestId, setSelectedBacktestId] = useState<number | null>(null);
@@ -154,6 +171,17 @@ function App() {
     const payload = {
       name: newProfileName.trim(),
       symbol,
+      strategy_type: strategyType,
+      strategy_params: {
+        ema_fast: emaFast,
+        ema_slow: emaSlow,
+        rsi_window: rsiWindow,
+        rsi_overbought: rsiOverbought,
+        rsi_oversold: rsiOversold,
+        macd_fast: macdFast,
+        macd_slow: macdSlow,
+        macd_signal: macdSignal,
+      },
       short_window: shortWindow,
       long_window: longWindow,
       period,
@@ -183,6 +211,18 @@ function App() {
     setPeriod(profile.period);
     setInitialCapital(profile.initial_capital);
     setFeeRate(profile.fee_rate);
+    if (profile.strategy_type) {
+      setStrategyType(profile.strategy_type);
+    }
+    const params = profile.strategy_params || {};
+    if (params.ema_fast) setEmaFast(params.ema_fast);
+    if (params.ema_slow) setEmaSlow(params.ema_slow);
+    if (params.rsi_window) setRsiWindow(params.rsi_window);
+    if (params.rsi_overbought) setRsiOverbought(params.rsi_overbought);
+    if (params.rsi_oversold) setRsiOversold(params.rsi_oversold);
+    if (params.macd_fast) setMacdFast(params.macd_fast);
+    if (params.macd_slow) setMacdSlow(params.macd_slow);
+    if (params.macd_signal) setMacdSignal(params.macd_signal);
   };
 
   const deleteProfile = async (id: number) => {
@@ -275,14 +315,27 @@ function App() {
   };
 
   const runBacktest = async (config?: BacktestConfig) => {
-    const cfg: BacktestConfig = config ?? {
-      symbol: symbol.trim().toUpperCase(),
-      shortWindow: shortWindow,
-      longWindow: longWindow,
-      period,
-      initialCapital,
-      feeRate,
-    };
+    const cfg: BacktestConfig =
+      config ??
+      {
+        symbol: symbol.trim().toUpperCase(),
+        strategyType,
+        shortWindow: shortWindow,
+        longWindow: longWindow,
+        period,
+        initialCapital,
+        feeRate,
+        strategyParams: {
+          ema_fast: emaFast,
+          ema_slow: emaSlow,
+          rsi_window: rsiWindow,
+          rsi_overbought: rsiOverbought,
+          rsi_oversold: rsiOversold,
+          macd_fast: macdFast,
+          macd_slow: macdSlow,
+          macd_signal: macdSignal,
+        },
+      };
 
     if (!cfg.symbol) return;
 
@@ -293,6 +346,7 @@ function App() {
     try {
       const params = new URLSearchParams({
         symbol: cfg.symbol,
+        strategy_type: cfg.strategyType ?? "sma",
         short_window: String(cfg.shortWindow),
         long_window: String(cfg.longWindow),
         period: cfg.period,
@@ -300,6 +354,15 @@ function App() {
         initial_capital: String(cfg.initialCapital),
         fee_rate: String(cfg.feeRate),
       });
+      const sp = cfg.strategyParams ?? {};
+      if (sp.ema_fast) params.set("ema_fast", String(sp.ema_fast));
+      if (sp.ema_slow) params.set("ema_slow", String(sp.ema_slow));
+      if (sp.rsi_window) params.set("rsi_window", String(sp.rsi_window));
+      if (sp.rsi_overbought) params.set("rsi_overbought", String(sp.rsi_overbought));
+      if (sp.rsi_oversold) params.set("rsi_oversold", String(sp.rsi_oversold));
+      if (sp.macd_fast) params.set("macd_fast", String(sp.macd_fast));
+      if (sp.macd_slow) params.set("macd_slow", String(sp.macd_slow));
+      if (sp.macd_signal) params.set("macd_signal", String(sp.macd_signal));
 
       const response = await fetch(`${BACKEND_BASE_URL}/backtest/sma?${params.toString()}`);
       if (!response.ok) {
@@ -374,6 +437,20 @@ function App() {
                 placeholder="Ticker e.g. AAPL"
               />
               <div className="input-group">
+                <label className="input-label">Strategy</label>
+                <select
+                  value={strategyType}
+                  onChange={(e) => setStrategyType(e.target.value)}
+                  className="input-select"
+                >
+                  <option value="sma">SMA Crossover</option>
+                  <option value="ema">EMA Crossover</option>
+                  <option value="rsi">RSI</option>
+                  <option value="macd">MACD</option>
+                  <option value="buyhold">Buy & Hold</option>
+                </select>
+              </div>
+              <div className="input-group">
                 <label className="input-label">Short SMA</label>
                 <input
                   type="number"
@@ -393,6 +470,98 @@ function App() {
                   className="input-number"
                 />
               </div>
+              {strategyType === "ema" && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">EMA Fast</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={emaFast}
+                      onChange={(e) => setEmaFast(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">EMA Slow</label>
+                    <input
+                      type="number"
+                      min={2}
+                      value={emaSlow}
+                      onChange={(e) => setEmaSlow(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                </>
+              )}
+              {strategyType === "rsi" && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">RSI Window</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={rsiWindow}
+                      onChange={(e) => setRsiWindow(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Overbought</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={rsiOverbought}
+                      onChange={(e) => setRsiOverbought(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Oversold</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={rsiOversold}
+                      onChange={(e) => setRsiOversold(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                </>
+              )}
+              {strategyType === "macd" && (
+                <>
+                  <div className="input-group">
+                    <label className="input-label">MACD Fast</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={macdFast}
+                      onChange={(e) => setMacdFast(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">MACD Slow</label>
+                    <input
+                      type="number"
+                      min={2}
+                      value={macdSlow}
+                      onChange={(e) => setMacdSlow(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                  <div className="input-group">
+                    <label className="input-label">Signal</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={macdSignal}
+                      onChange={(e) => setMacdSignal(Number(e.target.value))}
+                      className="input-number"
+                    />
+                  </div>
+                </>
+              )}
               <div className="input-group">
                 <label className="input-label">Period</label>
                 <select
@@ -534,7 +703,7 @@ function App() {
                     <div className="profile-meta">
                       <div className="profile-name">{p.name}</div>
                       <div className="profile-sub">
-                        {p.short_window}/{p.long_window} • {p.period} • $
+                        {(p.strategy_type ?? "sma").toUpperCase()} • {p.short_window}/{p.long_window} • {p.period} • $
                         {p.initial_capital.toLocaleString()}
                       </div>
                     </div>
@@ -545,12 +714,24 @@ function App() {
                           loadProfile(p);
                           const cfg: BacktestConfig = {
                             symbol: p.symbol ?? symbol,
+                            strategyType: p.strategy_type ?? "sma",
                             shortWindow: p.short_window,
                             longWindow: p.long_window,
                             period: p.period,
                             initialCapital: p.initial_capital,
                             feeRate: p.fee_rate,
+                            strategyParams: p.strategy_params ?? {},
                           };
+                          const sp = cfg.strategyParams ?? {};
+                          setStrategyType(cfg.strategyType);
+                          if (sp.ema_fast) setEmaFast(sp.ema_fast);
+                          if (sp.ema_slow) setEmaSlow(sp.ema_slow);
+                          if (sp.rsi_window) setRsiWindow(sp.rsi_window);
+                          if (sp.rsi_overbought) setRsiOverbought(sp.rsi_overbought);
+                          if (sp.rsi_oversold) setRsiOversold(sp.rsi_oversold);
+                          if (sp.macd_fast) setMacdFast(sp.macd_fast);
+                          if (sp.macd_slow) setMacdSlow(sp.macd_slow);
+                          if (sp.macd_signal) setMacdSignal(sp.macd_signal);
                           runBacktest(cfg);
                         }}
                       >
@@ -724,6 +905,7 @@ function App() {
                   <tr>
                     <th>When</th>
                     <th>Symbol</th>
+                    <th>Strategy</th>
                     <th>Short / Long</th>
                     <th>Period</th>
                     <th>Sharpe</th>
@@ -738,6 +920,7 @@ function App() {
                       <tr key={run.id} className={isActive ? "active-row" : ""}>
                         <td>{new Date(run.created_at).toLocaleString()}</td>
                         <td>{run.symbol}</td>
+                        <td>{run.strategy_type ?? "sma"}</td>
                         <td>
                           {run.short_window}/{run.long_window}
                         </td>
@@ -751,12 +934,24 @@ function App() {
                             onClick={() => {
                               const cfg: BacktestConfig = {
                                 symbol: run.symbol,
+                                strategyType: run.strategy_type ?? "sma",
                                 shortWindow: run.short_window,
                                 longWindow: run.long_window,
                                 period: run.period,
                                 initialCapital: run.initial_capital,
                                 feeRate: run.fee_rate,
+                                strategyParams: run.strategy_params ?? {},
                               };
+                              setStrategyType(cfg.strategyType);
+                              const sp = cfg.strategyParams ?? {};
+                              if (sp.ema_fast) setEmaFast(sp.ema_fast);
+                              if (sp.ema_slow) setEmaSlow(sp.ema_slow);
+                              if (sp.rsi_window) setRsiWindow(sp.rsi_window);
+                              if (sp.rsi_overbought) setRsiOverbought(sp.rsi_overbought);
+                              if (sp.rsi_oversold) setRsiOversold(sp.rsi_oversold);
+                              if (sp.macd_fast) setMacdFast(sp.macd_fast);
+                              if (sp.macd_slow) setMacdSlow(sp.macd_slow);
+                              if (sp.macd_signal) setMacdSignal(sp.macd_signal);
                               setSymbol(cfg.symbol);
                               setShortWindow(cfg.shortWindow);
                               setLongWindow(cfg.longWindow);

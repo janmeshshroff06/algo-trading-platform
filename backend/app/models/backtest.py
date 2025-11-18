@@ -1,9 +1,11 @@
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.db.session import Base
+
+JSONType = JSONB().with_variant(Text, "sqlite")
 
 
 class Backtest(Base):
@@ -20,6 +22,9 @@ class Backtest(Base):
 
     initial_capital = Column(Float, nullable=False)
     fee_rate = Column(Float, nullable=False)
+
+    strategy_type = Column(String, nullable=False, default="sma")
+    strategy_params = Column(JSONType, nullable=True)
 
     sharpe = Column(Float, nullable=False)
     max_drawdown = Column(Float, nullable=False)

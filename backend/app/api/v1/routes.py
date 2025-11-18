@@ -19,13 +19,30 @@ with engine.begin() as conn:
                 "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns "
                 "WHERE table_name='strategy_profiles' AND column_name='order_index') THEN "
                 "ALTER TABLE strategy_profiles ADD COLUMN order_index INTEGER DEFAULT 0; "
-                "END IF; END $$;"
+                "END IF; "
+                "IF NOT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_name='backtests' AND column_name='strategy_type') THEN "
+                "ALTER TABLE backtests ADD COLUMN strategy_type TEXT DEFAULT 'sma'; "
+                "END IF; "
+                "IF NOT EXISTS (SELECT 1 FROM information_schema.columns "
+                "WHERE table_name='backtests' AND column_name='strategy_params') THEN "
+                "ALTER TABLE backtests ADD COLUMN strategy_params JSONB; "
+                "END IF; "
+                "END $$;"
             )
         )
     else:
         # SQLite: attempt to add column; ignore if it exists
         try:
             conn.execute(text("ALTER TABLE strategy_profiles ADD COLUMN order_index INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE backtests ADD COLUMN strategy_type TEXT DEFAULT 'sma'"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE backtests ADD COLUMN strategy_params TEXT"))
         except Exception:
             pass
 
@@ -108,19 +125,36 @@ async def get_prices(symbol: str, period: str = "1mo", interval: str = "1d"):
 @router.get("/backtest/sma")
 async def sma_crossover_backtest(
     symbol: str,
+    strategy_type: str = Query("sma"),
     short_window: int = Query(10, ge=1),
     long_window: int = Query(20, ge=2),
     period: str = "3mo",
     interval: str = "1d",
     initial_capital: float = Query(10_000, gt=0),
     fee_rate: float = Query(0.0005, ge=0.0),  # e.g., 5 bps per trade
+    rsi_window: int = Query(14, ge=1),
+    rsi_overbought: float = Query(70, ge=0),
+    rsi_oversold: float = Query(30, ge=0),
+    macd_fast: int = Query(12, ge=1),
+    macd_slow: int = Query(26, ge=2),
+    macd_signal: int = Query(9, ge=1),
+    ema_fast: int = Query(10, ge=1),
+    ema_slow: int = Query(20, ge=2),
     db: Session = Depends(get_db),
 ):
     """
-    Simple SMA crossover backtest that goes long when short SMA crosses above long SMA.
+    Multi-strategy backtest engine.
+    strategy_type: sma | ema | rsi | macd | buyhold
     """
-    if short_window >= long_window:
-        raise HTTPException(status_code=400, detail="short_window must be less than long_window.")
+    symbol_upper = symbol.upper()
+    strategy_type = strategy_type.lower()
+
+    if strategy_type in ["sma", "ema"] and short_window >= long_window and strategy_type == "sma":
+        raise HTTPException(status_code=400, detail="short_window must be less than long_window for SMA.")
+    if strategy_type == "ema" and ema_fast >= ema_slow:
+        raise HTTPException(status_code=400, detail="ema_fast must be less than ema_slow.")
+    if strategy_type == "macd" and macd_fast >= macd_slow:
+        raise HTTPException(status_code=400, detail="macd_fast must be less than macd_slow.")
 
     try:
         ticker = yf.Ticker(symbol)
@@ -136,16 +170,48 @@ async def sma_crossover_backtest(
 
     history = history.reset_index()
     ts_col = "Date" if "Date" in history.columns else "Datetime"
-
     closes = history["Close"].copy()
-    history["short_sma"] = closes.rolling(window=short_window).mean()
-    history["long_sma"] = closes.rolling(window=long_window).mean()
-    history.dropna(subset=["short_sma", "long_sma"], inplace=True)
 
-    if history.empty:
-        raise HTTPException(status_code=400, detail="Not enough data for the requested windows.")
+    # signals and position determination
+    position = pd.Series(0, index=history.index)
 
-    history["position"] = np.where(history["short_sma"] > history["long_sma"], 1, 0)
+    if strategy_type == "sma":
+        history["short_sma"] = closes.rolling(window=short_window).mean()
+        history["long_sma"] = closes.rolling(window=long_window).mean()
+        history.dropna(subset=["short_sma", "long_sma"], inplace=True)
+        position = (history["short_sma"] > history["long_sma"]).astype(int)
+    elif strategy_type == "ema":
+        history["ema_fast"] = closes.ewm(span=ema_fast, adjust=False).mean()
+        history["ema_slow"] = closes.ewm(span=ema_slow, adjust=False).mean()
+        history.dropna(subset=["ema_fast", "ema_slow"], inplace=True)
+        position = (history["ema_fast"] > history["ema_slow"]).astype(int)
+    elif strategy_type == "rsi":
+        delta = closes.diff()
+        up = delta.clip(lower=0)
+        down = -1 * delta.clip(upper=0)
+        roll_up = up.rolling(rsi_window).mean()
+        roll_down = down.rolling(rsi_window).mean()
+        rs = roll_up / roll_down.replace(0, np.nan)
+        history["rsi"] = 100 - (100 / (1 + rs))
+        history.dropna(subset=["rsi"], inplace=True)
+        position = (history["rsi"] < rsi_oversold).astype(int)
+        # exit when overbought: set to 0 when rsi > overbought
+        position = position.where(history["rsi"] <= rsi_overbought, 0)
+    elif strategy_type == "macd":
+        ema_fast_series = closes.ewm(span=macd_fast, adjust=False).mean()
+        ema_slow_series = closes.ewm(span=macd_slow, adjust=False).mean()
+        macd_line = ema_fast_series - ema_slow_series
+        signal_line = macd_line.ewm(span=macd_signal, adjust=False).mean()
+        history["macd"] = macd_line
+        history["signal"] = signal_line
+        history.dropna(subset=["macd", "signal"], inplace=True)
+        position = (history["macd"] > history["signal"]).astype(int)
+    elif strategy_type == "buyhold":
+        position = pd.Series(1, index=history.index)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported strategy_type.")
+
+    history["position"] = position
     history["signal"] = history["position"].diff().fillna(0)
 
     cash = float(initial_capital)
@@ -203,6 +269,28 @@ async def sma_crossover_backtest(
         equity = cash + shares * price
         equity_curve.append({"timestamp": timestamp, "equity": round(equity, 2)})
 
+    # Close any open position at end for buy/hold; keep as is for others by default
+    if shares > 0:
+        price = float(history.iloc[-1]["Close"])
+        proceeds = shares * price
+        commission = proceeds * fee_rate
+        cash += proceeds - commission
+        trades.append(
+            {
+                "timestamp": history.iloc[-1][ts_col].isoformat(),
+                "side": "SELL",
+                "price": price,
+                "shares": shares,
+                "equity_after_trade": round(cash, 2),
+            }
+        )
+        if entry_price is not None and entry_shares:
+            completed_trades += 1
+            if price > entry_price:
+                wins += 1
+        shares = 0
+        equity_curve[-1]["equity"] = round(cash, 2)
+
     equity_df = pd.DataFrame(equity_curve).set_index("timestamp")
     returns = equity_df["equity"].pct_change().dropna()
 
@@ -219,14 +307,29 @@ async def sma_crossover_backtest(
     total_return = (equity_curve[-1]["equity"] / initial_capital) - 1 if equity_curve else 0.0
     num_trades = completed_trades
 
+    strategy_params = {
+        "short_window": short_window,
+        "long_window": long_window,
+        "rsi_window": rsi_window,
+        "rsi_overbought": rsi_overbought,
+        "rsi_oversold": rsi_oversold,
+        "macd_fast": macd_fast,
+        "macd_slow": macd_slow,
+        "macd_signal": macd_signal,
+        "ema_fast": ema_fast,
+        "ema_slow": ema_slow,
+    }
+
     record = Backtest(
-        symbol=symbol.upper(),
+        symbol=symbol_upper,
         short_window=short_window,
         long_window=long_window,
         period=period,
         interval=interval,
         initial_capital=initial_capital,
         fee_rate=fee_rate,
+        strategy_type=strategy_type,
+        strategy_params=strategy_params,
         sharpe=round(float(sharpe), 3),
         max_drawdown=round(max_drawdown, 4),
         total_return=round(total_return, 4),
@@ -238,13 +341,15 @@ async def sma_crossover_backtest(
     db.refresh(record)
 
     return {
-        "symbol": symbol.upper(),
+        "symbol": symbol_upper,
         "short_window": short_window,
         "long_window": long_window,
         "period": period,
         "interval": interval,
         "initial_capital": initial_capital,
         "fee_rate": fee_rate,
+        "strategy_type": strategy_type,
+        "strategy_params": strategy_params,
         "equity_curve": equity_curve,
         "trades": trades,
         "metrics": {
@@ -274,6 +379,8 @@ def list_backtests(
             "id": bt.id,
             "created_at": bt.created_at.isoformat(),
             "symbol": bt.symbol,
+            "strategy_type": getattr(bt, "strategy_type", "sma"),
+            "strategy_params": getattr(bt, "strategy_params", {}),
             "short_window": bt.short_window,
             "long_window": bt.long_window,
             "period": bt.period,
@@ -301,6 +408,8 @@ def get_backtest(backtest_id: int, db: Session = Depends(get_db)):
         "id": bt.id,
         "created_at": bt.created_at.isoformat(),
         "symbol": bt.symbol,
+        "strategy_type": getattr(bt, "strategy_type", "sma"),
+        "strategy_params": getattr(bt, "strategy_params", {}),
         "short_window": bt.short_window,
         "long_window": bt.long_window,
         "period": bt.period,
