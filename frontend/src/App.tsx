@@ -1,13 +1,6 @@
 import React, { useEffect, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import CandlestickChart from "./components/CandlestickChart";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 
@@ -610,30 +603,16 @@ function BacktestPage() {
                 No data yet. Try loading a symbol.
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={prices}>
-                  <defs>
-                    <linearGradient id="colorClose" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.8} />
-                      <stop offset="95%" stopColor="#38bdf8" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                  <XAxis dataKey="timestamp" tickFormatter={(value) => value.slice(5, 10)} tick={{ fontSize: 10, fill: "#9ca3af" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} tickFormatter={(value) => `$${value.toFixed(0)}`} width={60} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#020617",
-                      border: "1px solid #1f2937",
-                      borderRadius: "0.75rem",
-                      fontSize: "0.75rem",
-                    }}
-                    labelFormatter={(label) => `Date: ${label.slice(0, 10)}`}
-                    formatter={(value: any) => [`$${value.toFixed(2)}`, "Close"]}
-                  />
-                  <Area type="monotone" dataKey="close" stroke="#38bdf8" fillOpacity={1} fill="url(#colorClose)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              <CandlestickChart
+                data={prices.map((p) => ({
+                  timestamp: p.timestamp,
+                  open: p.open,
+                  high: p.high,
+                  low: p.low,
+                  close: p.close,
+                }))}
+                height={280}
+              />
             )}
           </div>
         </section>
