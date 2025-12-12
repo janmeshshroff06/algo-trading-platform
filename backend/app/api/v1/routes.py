@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 import yfinance as yf
 import pandas as pd
@@ -55,6 +57,15 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _deserialize_strategy_params(raw):
+    if engine.dialect.name == "sqlite" and isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    return raw or {}
 
 
 @router.get("/health")
@@ -214,6 +225,18 @@ async def sma_crossover_backtest(
     history["position"] = position
     history["signal"] = history["position"].diff().fillna(0)
 
+    ohlc: list[dict[str, float | int]] = []
+    for _, row in history.iterrows():
+        ohlc.append(
+            {
+                "time": int(pd.Timestamp(row[ts_col]).timestamp()),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+            }
+        )
+
     cash = float(initial_capital)
     shares = 0
     entry_price = None
@@ -320,6 +343,11 @@ async def sma_crossover_backtest(
         "ema_slow": ema_slow,
     }
 
+    # SQLite JSON fallback: store as string
+    strategy_params_for_db = (
+        json.dumps(strategy_params) if engine.dialect.name == "sqlite" else strategy_params
+    )
+
     record = Backtest(
         symbol=symbol_upper,
         short_window=short_window,
@@ -329,7 +357,7 @@ async def sma_crossover_backtest(
         initial_capital=initial_capital,
         fee_rate=fee_rate,
         strategy_type=strategy_type,
-        strategy_params=strategy_params,
+        strategy_params=strategy_params_for_db,
         sharpe=round(float(sharpe), 3),
         max_drawdown=round(max_drawdown, 4),
         total_return=round(total_return, 4),
@@ -352,6 +380,7 @@ async def sma_crossover_backtest(
         "strategy_params": strategy_params,
         "equity_curve": equity_curve,
         "trades": trades,
+        "ohlc": ohlc,
         "metrics": {
             "sharpe": round(float(sharpe), 3),
             "max_drawdown": round(max_drawdown, 4),
@@ -380,7 +409,7 @@ def list_backtests(
             "created_at": bt.created_at.isoformat(),
             "symbol": bt.symbol,
             "strategy_type": getattr(bt, "strategy_type", "sma"),
-            "strategy_params": getattr(bt, "strategy_params", {}),
+            "strategy_params": _deserialize_strategy_params(getattr(bt, "strategy_params", {})),
             "short_window": bt.short_window,
             "long_window": bt.long_window,
             "period": bt.period,
@@ -409,7 +438,7 @@ def get_backtest(backtest_id: int, db: Session = Depends(get_db)):
         "created_at": bt.created_at.isoformat(),
         "symbol": bt.symbol,
         "strategy_type": getattr(bt, "strategy_type", "sma"),
-        "strategy_params": getattr(bt, "strategy_params", {}),
+        "strategy_params": _deserialize_strategy_params(getattr(bt, "strategy_params", {})),
         "short_window": bt.short_window,
         "long_window": bt.long_window,
         "period": bt.period,

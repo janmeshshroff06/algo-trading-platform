@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import CandlestickChart from "./components/CandlestickChart";
+import CandlestickChart, { Candle } from "./components/CandlestickChart";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 
@@ -51,6 +51,7 @@ type BacktestResponse = {
   fee_rate?: number;
   strategy_type?: string;
   strategy_params?: Record<string, any>;
+  ohlc?: Candle[];
   equity_curve: EquityPoint[];
   trades: Trade[];
   metrics: BacktestMetrics;
@@ -99,6 +100,8 @@ type StrategyProfile = {
   fee_rate: number;
 };
 
+type LinePoint = { time: number; value: number };
+
 const BACKEND_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
 function BacktestPage() {
@@ -132,6 +135,39 @@ function BacktestPage() {
   const [profiles, setProfiles] = useState<StrategyProfile[]>([]);
   const [newProfileName, setNewProfileName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+
+  const toUnixSeconds = (timestamp: string) => Math.floor(new Date(timestamp).getTime() / 1000);
+
+  const buildSMA = (candles: Candle[], window: number): LinePoint[] => {
+    if (!candles.length || window <= 0) return [];
+    const points: LinePoint[] = [];
+    let rollingSum = 0;
+
+    for (let i = 0; i < candles.length; i += 1) {
+      rollingSum += candles[i].close;
+      if (i >= window) {
+        rollingSum -= candles[i - window].close;
+      }
+      if (i >= window - 1) {
+        points.push({ time: candles[i].time, value: rollingSum / window });
+      }
+    }
+    return points;
+  };
+
+  const buildEMA = (candles: Candle[], window: number): LinePoint[] => {
+    if (!candles.length || window <= 0) return [];
+    const k = 2 / (window + 1);
+    let ema: number | null = null;
+    const points: LinePoint[] = [];
+
+    candles.forEach((candle) => {
+      ema = ema === null ? candle.close : candle.close * k + ema * (1 - k);
+      points.push({ time: candle.time, value: ema });
+    });
+
+    return points;
+  };
 
   const fetchHistory = async (sym?: string) => {
     try {
@@ -321,6 +357,50 @@ function BacktestPage() {
       setBacktestLoading(false);
     }
   };
+
+  const liveCandles = useMemo<Candle[]>(() => {
+    return prices.map((p) => ({
+      time: toUnixSeconds(p.timestamp),
+      open: p.open,
+      high: p.high,
+      low: p.low,
+      close: p.close,
+    }));
+  }, [prices]);
+
+  const backtestCandles = useMemo<Candle[]>(() => backtestResult?.ohlc ?? [], [backtestResult]);
+  const strategyParams = (backtestResult?.strategy_params as Record<string, any> | undefined) ?? {};
+  const emaFastWindow = typeof strategyParams.ema_fast === "number" ? strategyParams.ema_fast : undefined;
+  const emaSlowWindow = typeof strategyParams.ema_slow === "number" ? strategyParams.ema_slow : undefined;
+
+  const smaShortLine = useMemo<LinePoint[]>(() => {
+    if (!backtestResult || backtestCandles.length === 0) return [];
+    return buildSMA(backtestCandles, backtestResult.short_window);
+  }, [backtestCandles, backtestResult]);
+
+  const smaLongLine = useMemo<LinePoint[]>(() => {
+    if (!backtestResult || backtestCandles.length === 0) return [];
+    return buildSMA(backtestCandles, backtestResult.long_window);
+  }, [backtestCandles, backtestResult]);
+
+  const emaFastLine = useMemo<LinePoint[]>(() => {
+    if (!backtestResult || backtestCandles.length === 0 || !emaFastWindow) return [];
+    return buildEMA(backtestCandles, emaFastWindow);
+  }, [backtestCandles, backtestResult, emaFastWindow]);
+
+  const emaSlowLine = useMemo<LinePoint[]>(() => {
+    if (!backtestResult || backtestCandles.length === 0 || !emaSlowWindow) return [];
+    return buildEMA(backtestCandles, emaSlowWindow);
+  }, [backtestCandles, backtestResult, emaSlowWindow]);
+
+  const tradeMarkers = useMemo(() => {
+    if (!backtestResult) return [];
+    return backtestResult.trades.map((trade) => ({
+      time: toUnixSeconds(trade.timestamp),
+      side: trade.side,
+      price: trade.price,
+    }));
+  }, [backtestResult]);
 
   const lastClose = prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
 
@@ -585,7 +665,7 @@ function BacktestPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={runBacktest}
+                  onClick={() => runBacktest()}
                   className="px-3 py-1 rounded-lg border border-sky-400 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 transition"
                   disabled={backtestLoading}
                 >
@@ -603,16 +683,7 @@ function BacktestPage() {
                 No data yet. Try loading a symbol.
               </div>
             ) : (
-              <CandlestickChart
-                data={prices.map((p) => ({
-                  timestamp: p.timestamp,
-                  open: p.open,
-                  high: p.high,
-                  low: p.low,
-                  close: p.close,
-                }))}
-                height={280}
-              />
+              <CandlestickChart candles={liveCandles} height={280} />
             )}
           </div>
         </section>
@@ -743,6 +814,23 @@ function BacktestPage() {
               </div>
 
               <div className="equity-panel">
+                <h3 className="panel-subtitle">Price & Signals</h3>
+                {backtestCandles.length === 0 ? (
+                  <p className="text-sm text-slate-400">No candle data returned for this run.</p>
+                ) : (
+                  <CandlestickChart
+                    candles={backtestCandles}
+                    smaShort={smaShortLine}
+                    smaLong={smaLongLine}
+                    emaFast={emaFastLine}
+                    emaSlow={emaSlowLine}
+                    markers={tradeMarkers}
+                    height={360}
+                  />
+                )}
+              </div>
+
+              <div className="equity-panel">
                 <h3 className="panel-subtitle">Equity Curve</h3>
                 <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
@@ -847,7 +935,7 @@ function BacktestPage() {
                         </td>
                         <td>{run.period}</td>
                         <td>{run.metrics.sharpe.toFixed(2)}</td>
-                        <td>{(run.metrics.total_return * 100).toFixed(1)}%</td>
+                        <td>{(((run.metrics.total_return ?? 0) as number) * 100).toFixed(1)}%</td>
                         <td>
                           <button
                             type="button"

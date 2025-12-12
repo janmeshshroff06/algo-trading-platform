@@ -1,14 +1,19 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import {
-  CandlestickData,
   createChart,
+  ColorType,
+  CrosshairMode,
+  IChartApi,
   ISeriesApi,
-  LineStyle,
-  Time,
+  CandlestickData,
+  LineData,
+  SeriesMarker,
+  SeriesMarkerPosition,
+  UTCTimestamp,
 } from "lightweight-charts";
 
 export type Candle = {
-  timestamp: string;
+  time: number; // unix seconds
   open: number;
   high: number;
   low: number;
@@ -16,87 +21,176 @@ export type Candle = {
 };
 
 export type Marker = {
-  time: Time;
-  position: "aboveBar" | "belowBar";
-  color: string;
-  shape: "arrowUp" | "arrowDown";
-  text: string;
+  time: number; // unix seconds
+  side: "BUY" | "SELL";
+  price?: number;
 };
 
 type Props = {
-  data: Candle[];
+  candles: Candle[];
+  smaShort?: { time: number; value: number }[];
+  smaLong?: { time: number; value: number }[];
+  emaFast?: { time: number; value: number }[];
+  emaSlow?: { time: number; value: number }[];
   markers?: Marker[];
   height?: number;
 };
 
-function toTime(ts: string): Time {
-  return Math.floor(new Date(ts).getTime() / 1000) as Time;
+function toUTC(t: number): UTCTimestamp {
+  return t as UTCTimestamp;
 }
 
-const CandlestickChart: React.FC<Props> = ({ data, markers, height = 300 }) => {
+export default function CandlestickChart({
+  candles,
+  smaShort,
+  smaLong,
+  emaFast,
+  emaSlow,
+  markers,
+  height = 420,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  const seriesRef = useRef<{
+    candle?: ISeriesApi<"Candlestick">;
+    smaShort?: ISeriesApi<"Line">;
+    smaLong?: ISeriesApi<"Line">;
+    emaFast?: ISeriesApi<"Line">;
+    emaSlow?: ISeriesApi<"Line">;
+  }>({});
+
+  const candleSeriesData: CandlestickData[] = useMemo(() => {
+    return (candles ?? []).map((c) => ({
+      time: toUTC(c.time),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+  }, [candles]);
+
+  const toLine = (arr?: { time: number; value: number }[]): LineData[] =>
+    (arr ?? []).map((p) => ({ time: toUTC(p.time), value: p.value }));
+
+  // Markers need to be placed on the candlestick series
+  const candleMarkers = useMemo<SeriesMarker<UTCTimestamp>[]>(() => {
+    return (markers ?? []).map((m) => {
+      const position: SeriesMarkerPosition = m.side === "BUY" ? "belowBar" : "aboveBar";
+      return {
+        time: toUTC(m.time),
+        position,
+        shape: m.side === "BUY" ? "arrowUp" : "arrowDown",
+        color: m.side === "BUY" ? "rgba(34,197,94,0.9)" : "rgba(239,68,68,0.9)",
+        text: m.side,
+      };
+    });
+  }, [markers]);
 
   useEffect(() => {
     if (!containerRef.current) return;
+
+    // (Re)create chart
     const chart = createChart(containerRef.current, {
+      height,
       layout: {
-        background: { color: "#020617" },
-        textColor: "#cbd5f5",
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "#cbd5e1",
       },
       grid: {
-        vertLines: { color: "rgba(148,163,184,0.12)" },
-        horzLines: { color: "rgba(148,163,184,0.12)" },
+        vertLines: { color: "rgba(148,163,184,0.08)" },
+        horzLines: { color: "rgba(148,163,184,0.08)" },
       },
-      crosshair: {
-        mode: 1,
-      },
-      timeScale: {
-        borderColor: "rgba(148,163,184,0.3)",
-      },
-      rightPriceScale: {
-        borderColor: "rgba(148,163,184,0.3)",
-      },
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: { borderColor: "rgba(148,163,184,0.15)" },
+      timeScale: { borderColor: "rgba(148,163,184,0.15)" },
     });
 
-    const candleSeries: ISeriesApi<"Candlestick"> = chart.addCandlestickSeries({
-      upColor: "#22c55e",
-      downColor: "#ef4444",
-      wickUpColor: "#22c55e",
-      wickDownColor: "#ef4444",
+    chartRef.current = chart;
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: "rgba(34,197,94,0.9)",
+      downColor: "rgba(239,68,68,0.9)",
       borderVisible: false,
+      wickUpColor: "rgba(34,197,94,0.9)",
+      wickDownColor: "rgba(239,68,68,0.9)",
     });
 
-    const candleData: CandlestickData[] = data.map((d) => ({
-      time: toTime(d.timestamp),
-      open: d.open,
-      high: d.high,
-      low: d.low,
-      close: d.close,
-    }));
+    const smaShortSeries = chart.addLineSeries({
+      lineWidth: 2,
+      color: "rgba(56,189,248,0.9)", // sky-ish
+    });
 
-    candleSeries.setData(candleData);
+    const smaLongSeries = chart.addLineSeries({
+      lineWidth: 2,
+      color: "rgba(167,139,250,0.9)", // violet-ish
+    });
 
-    if (markers && markers.length > 0) {
-      candleSeries.setMarkers(markers);
-    }
+    const emaFastSeries = chart.addLineSeries({
+      lineWidth: 2,
+      color: "rgba(251,191,36,0.9)", // amber-ish
+    });
 
-    chart.timeScale().fitContent();
+    const emaSlowSeries = chart.addLineSeries({
+      lineWidth: 2,
+      color: "rgba(244,114,182,0.9)", // pink-ish
+    });
 
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
+    seriesRef.current = {
+      candle: candleSeries,
+      smaShort: smaShortSeries,
+      smaLong: smaLongSeries,
+      emaFast: emaFastSeries,
+      emaSlow: emaSlowSeries,
     };
-    handleResize();
-    window.addEventListener("resize", handleResize);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
       chart.remove();
+      chartRef.current = null;
+      seriesRef.current = {};
     };
-  }, [data, markers]);
+  }, [height]);
 
-  return <div ref={containerRef} style={{ height }} />;
-};
+  // Update series data when inputs change
+  useEffect(() => {
+    const candleSeries = seriesRef.current.candle;
+    if (!candleSeries) return;
 
-export default CandlestickChart;
+    candleSeries.setData(candleSeriesData);
+
+    // lines (optional)
+    seriesRef.current.smaShort?.setData(toLine(smaShort));
+    seriesRef.current.smaLong?.setData(toLine(smaLong));
+    seriesRef.current.emaFast?.setData(toLine(emaFast));
+    seriesRef.current.emaSlow?.setData(toLine(emaSlow));
+
+    // markers
+    candleSeries.setMarkers(candleMarkers);
+
+    // fit
+    chartRef.current?.timeScale().fitContent();
+  }, [candleSeriesData, smaShort, smaLong, emaFast, emaSlow, candleMarkers]);
+
+  // Resize with container
+  useEffect(() => {
+    const el = containerRef.current;
+    const chart = chartRef.current;
+    if (!el || !chart) return;
+
+    const ro = new ResizeObserver(() => {
+      chart.applyOptions({ width: el.clientWidth });
+    });
+    ro.observe(el);
+
+    // initial
+    chart.applyOptions({ width: el.clientWidth });
+
+    return () => ro.disconnect();
+  }, []);
+
+  return (
+    <div className="w-full rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+      <div ref={containerRef} className="w-full" />
+    </div>
+  );
+}
