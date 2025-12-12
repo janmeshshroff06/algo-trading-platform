@@ -538,6 +538,9 @@ function BacktestPage() {
   const toggledEmaSlow = showLongLine ? replayedEmaSlow : [];
   const toggledMarkers = showTradeMarkers ? replayedMarkers : [];
 
+  const finalEquity =
+    backtestResult?.equity_curve[backtestResult.equity_curve.length - 1]?.equity ?? initialCapital;
+
   const lastClose = prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
 
   const loadProfile = (profile: StrategyProfile) => {
@@ -924,6 +927,52 @@ function BacktestPage() {
 
           {backtestResult && (
             <div className="backtest-grid">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="metric-card">
+                  <p className="metric-label">Strategy</p>
+                  <p className="metric-value text-base">
+                    {(backtestResult.strategy_type ?? "sma").toUpperCase()} {backtestResult.short_window}/
+                    {backtestResult.long_window}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Symbol: {backtestResult.symbol} • Period: {backtestResult.period} • Interval:{" "}
+                    {backtestResult.interval}
+                  </p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Capital & Fees</p>
+                  <p className="text-lg font-semibold">
+                    Start ${backtestResult.initial_capital?.toLocaleString() ?? initialCapital.toLocaleString()}
+                  </p>
+                  <p className="text-sm text-slate-300">
+                    Final ${finalEquity.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">Fee rate: {(backtestResult.fee_rate ?? feeRate) * 100}%</p>
+                </div>
+                <div className="metric-card">
+                  <p className="metric-label">Params</p>
+                  <p className="text-sm text-slate-200">
+                    Short {backtestResult.short_window}, Long {backtestResult.long_window}
+                  </p>
+                  {backtestResult.strategy_type === "ema" && (
+                    <p className="text-xs text-slate-400">
+                      EMA fast {strategyParams.ema_fast} • EMA slow {strategyParams.ema_slow}
+                    </p>
+                  )}
+                  {backtestResult.strategy_type === "rsi" && (
+                    <p className="text-xs text-slate-400">
+                      RSI {strategyParams.rsi_window} • OB {strategyParams.rsi_overbought} • OS{" "}
+                      {strategyParams.rsi_oversold}
+                    </p>
+                  )}
+                  {backtestResult.strategy_type === "macd" && (
+                    <p className="text-xs text-slate-400">
+                      MACD {strategyParams.macd_fast}/{strategyParams.macd_slow} • Signal {strategyParams.macd_signal}
+                    </p>
+                  )}
+                </div>
+              </div>
+
               <div className="metrics-grid">
                 <div className="metric-card">
                   <p className="metric-label">Sharpe Ratio</p>
