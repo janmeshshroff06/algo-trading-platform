@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import CandlestickChart, { Candle } from "./components/CandlestickChart";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
@@ -135,6 +135,11 @@ function BacktestPage() {
   const [profiles, setProfiles] = useState<StrategyProfile[]>([]);
   const [newProfileName, setNewProfileName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [replaySpeedMs, setReplaySpeedMs] = useState(150);
+  const replayTimerRef = useRef<number | null>(null);
 
   const toUnixSeconds = (timestamp: string) => Math.floor(new Date(timestamp).getTime() / 1000);
 
@@ -401,6 +406,92 @@ function BacktestPage() {
       price: trade.price,
     }));
   }, [backtestResult]);
+
+  const stopReplay = () => {
+    if (replayTimerRef.current) {
+      window.clearInterval(replayTimerRef.current);
+      replayTimerRef.current = null;
+    }
+    setIsReplaying(false);
+  };
+
+  const startReplay = () => {
+    if (!backtestCandles.length) return;
+    stopReplay();
+    setIsReplaying(true);
+    setReplayIndex(1);
+  };
+
+  useEffect(() => {
+    if (!isReplaying) {
+      if (replayTimerRef.current) {
+        window.clearInterval(replayTimerRef.current);
+        replayTimerRef.current = null;
+      }
+      return;
+    }
+
+    replayTimerRef.current = window.setInterval(() => {
+      setReplayIndex((prev) => {
+        const next = prev + 1;
+        if (next >= backtestCandles.length) {
+          stopReplay();
+          return backtestCandles.length;
+        }
+        return next;
+      });
+    }, replaySpeedMs);
+
+    return () => {
+      if (replayTimerRef.current) {
+        window.clearInterval(replayTimerRef.current);
+        replayTimerRef.current = null;
+      }
+    };
+  }, [isReplaying, replaySpeedMs, backtestCandles.length]);
+
+  // If backtest result changes, stop replay and reset index
+  useEffect(() => {
+    stopReplay();
+    setReplayIndex(backtestCandles.length);
+  }, [backtestCandles]);
+
+  const replayedCandles = useMemo(() => {
+    if (!isReplaying) return backtestCandles;
+    const count = Math.min(Math.max(replayIndex, 0), backtestCandles.length);
+    return backtestCandles.slice(0, count);
+  }, [backtestCandles, isReplaying, replayIndex]);
+
+  const lastReplayTime = replayedCandles[replayedCandles.length - 1]?.time;
+
+  const replayedSmaShort = useMemo(() => {
+    if (!isReplaying) return smaShortLine;
+    const count = Math.min(replayIndex, smaShortLine.length);
+    return smaShortLine.slice(0, count);
+  }, [isReplaying, replayIndex, smaShortLine]);
+
+  const replayedSmaLong = useMemo(() => {
+    if (!isReplaying) return smaLongLine;
+    const count = Math.min(replayIndex, smaLongLine.length);
+    return smaLongLine.slice(0, count);
+  }, [isReplaying, replayIndex, smaLongLine]);
+
+  const replayedEmaFast = useMemo(() => {
+    if (!isReplaying) return emaFastLine;
+    const count = Math.min(replayIndex, emaFastLine.length);
+    return emaFastLine.slice(0, count);
+  }, [isReplaying, replayIndex, emaFastLine]);
+
+  const replayedEmaSlow = useMemo(() => {
+    if (!isReplaying) return emaSlowLine;
+    const count = Math.min(replayIndex, emaSlowLine.length);
+    return emaSlowLine.slice(0, count);
+  }, [isReplaying, replayIndex, emaSlowLine]);
+
+  const replayedMarkers = useMemo(() => {
+    if (!isReplaying || lastReplayTime === undefined) return tradeMarkers;
+    return tradeMarkers.filter((m) => m.time <= lastReplayTime);
+  }, [isReplaying, lastReplayTime, tradeMarkers]);
 
   const lastClose = prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
 
@@ -815,16 +906,52 @@ function BacktestPage() {
 
               <div className="equity-panel">
                 <h3 className="panel-subtitle">Price & Signals</h3>
+                <div className="flex items-center gap-3 mb-2">
+                  {!isReplaying ? (
+                    <button
+                      type="button"
+                      className="px-3 py-1 rounded-lg border border-slate-700 text-xs text-slate-200 hover:border-sky-500 transition"
+                      onClick={startReplay}
+                      disabled={backtestCandles.length === 0}
+                    >
+                      ▶ Replay
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-3 py-1 rounded-lg border border-slate-700 text-xs text-slate-200 hover:border-rose-500 transition"
+                      onClick={stopReplay}
+                    >
+                      ⏹ Stop
+                    </button>
+                  )}
+                  <label className="text-xs text-slate-400">Speed</label>
+                  <select
+                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs"
+                    value={replaySpeedMs}
+                    onChange={(e) => setReplaySpeedMs(Number(e.target.value))}
+                    disabled={isReplaying}
+                  >
+                    <option value={50}>Fast</option>
+                    <option value={150}>Normal</option>
+                    <option value={400}>Slow</option>
+                  </select>
+                  {isReplaying && (
+                    <span className="text-xs text-slate-400">
+                      {replayIndex}/{backtestCandles.length}
+                    </span>
+                  )}
+                </div>
                 {backtestCandles.length === 0 ? (
                   <p className="text-sm text-slate-400">No candle data returned for this run.</p>
                 ) : (
                   <CandlestickChart
-                    candles={backtestCandles}
-                    smaShort={smaShortLine}
-                    smaLong={smaLongLine}
-                    emaFast={emaFastLine}
-                    emaSlow={emaSlowLine}
-                    markers={tradeMarkers}
+                    candles={replayedCandles}
+                    smaShort={replayedSmaShort}
+                    smaLong={replayedSmaLong}
+                    emaFast={replayedEmaFast}
+                    emaSlow={replayedEmaSlow}
+                    markers={replayedMarkers}
                     height={360}
                   />
                 )}
