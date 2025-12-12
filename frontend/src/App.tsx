@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import CandlestickChart, { Candle } from "./components/CandlestickChart";
+import NavBar from "./components/NavBar";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 
@@ -1189,11 +1190,14 @@ function HistoryPage() {
 export default function App() {
   return (
     <Router>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/backtest" element={<BacktestPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-      </Routes>
+      <div className="min-h-screen bg-slate-950 text-slate-100">
+        <NavBar />
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/backtest" element={<BacktestPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+        </Routes>
+      </div>
     </Router>
   );
 }
