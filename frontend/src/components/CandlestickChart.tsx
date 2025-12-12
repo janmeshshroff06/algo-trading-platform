@@ -60,6 +60,8 @@ export default function CandlestickChart({
     emaSlow?: ISeriesApi<"Line">;
   }>({});
 
+  const valueRef = useRef<HTMLDivElement | null>(null);
+
   const candleSeriesData: CandlestickData[] = useMemo(() => {
     return (candles ?? []).map((c) => ({
       time: toUTC(c.time),
@@ -171,6 +173,40 @@ export default function CandlestickChart({
     chartRef.current?.timeScale().fitContent();
   }, [candleSeriesData, smaShort, smaLong, emaFast, emaSlow, candleMarkers]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    const candleSeries = seriesRef.current.candle;
+    if (!chart || !candleSeries) return;
+
+    const tooltipEl = valueRef.current;
+    const handler = chart.subscribeCrosshairMove((param) => {
+      if (!tooltipEl || !param.time || !param.seriesPrices) return;
+      const price = param.seriesPrices.get(candleSeries) as any;
+      if (!price) return;
+      const ohlc = price as { open: number; high: number; low: number; close: number };
+      const time = param.time as UTCTimestamp;
+
+      const fmt = new Date((time as number) * 1000).toLocaleDateString();
+
+      const items: string[] = [];
+      items.push(`O ${ohlc.open?.toFixed(2)}`);
+      items.push(`H ${ohlc.high?.toFixed(2)}`);
+      items.push(`L ${ohlc.low?.toFixed(2)}`);
+      items.push(`C ${ohlc.close?.toFixed(2)}`);
+
+      const shortVal = param.seriesPrices.get(seriesRef.current.smaShort as any) as any;
+      const longVal = param.seriesPrices.get(seriesRef.current.smaLong as any) as any;
+      if (shortVal?.value !== undefined) items.push(`SMA S ${shortVal.value.toFixed(2)}`);
+      if (longVal?.value !== undefined) items.push(`SMA L ${longVal.value.toFixed(2)}`);
+
+      tooltipEl.textContent = `${fmt}  |  ${items.join("  •  ")}`;
+    });
+
+    return () => {
+      if (handler) chart.unsubscribeCrosshairMove(handler);
+    };
+  }, []);
+
   // Resize with container
   useEffect(() => {
     const el = containerRef.current;
@@ -189,7 +225,8 @@ export default function CandlestickChart({
   }, []);
 
   return (
-    <div className="w-full rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
+    <div className="w-full rounded-2xl border border-slate-800 bg-slate-900/40 p-3 space-y-2">
+      <div className="text-[11px] text-slate-300 h-4" ref={valueRef} />
       <div ref={containerRef} className="w-full" />
     </div>
   );

@@ -800,7 +800,13 @@ function BacktestPage() {
                   className="px-3 py-1 rounded-lg bg-sky-500 hover:bg-sky-400 text-xs font-semibold text-slate-950 transition"
                   disabled={loadingPrices}
                 >
-                  {loadingPrices ? "Loading..." : "Load"}
+                  {loadingPrices ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="spinner" /> Loading...
+                    </span>
+                  ) : (
+                    "Load"
+                  )}
                 </button>
                 <button
                   type="button"
@@ -808,13 +814,23 @@ function BacktestPage() {
                   className="px-3 py-1 rounded-lg border border-sky-400 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 transition"
                   disabled={backtestLoading}
                 >
-                  {backtestLoading ? "Backtesting..." : "Run Backtest"}
+                  {backtestLoading ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="spinner" /> Backtesting...
+                    </span>
+                  ) : (
+                    "Run Backtest"
+                  )}
                 </button>
               </div>
             </form>
           </div>
 
-          {priceError && <div className="text-xs text-rose-400 mb-3">Error: {priceError}</div>}
+          {priceError && (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-200 text-sm px-3 py-2 mb-3">
+              Error: {priceError}
+            </div>
+          )}
 
           <div className="chart-container">
             {prices.length === 0 && !loadingPrices ? (
@@ -919,10 +935,17 @@ function BacktestPage() {
             </div>
           </div>
 
-          {backtestError && <div className="text-xs text-rose-400 mb-3">Error: {backtestError}</div>}
+          {backtestError && (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-200 text-sm px-3 py-2 mb-3">
+              Error: {backtestError}
+            </div>
+          )}
 
           {!backtestResult && !backtestLoading && (
-            <p className="text-sm text-slate-400">Run the backtest to view equity curve, metrics, and trade history.</p>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
+              <p className="font-semibold text-slate-100 mb-1">No backtest yet</p>
+              <p>Run a backtest to see metrics, charts, and trade history.</p>
+            </div>
           )}
 
           {backtestResult && (
@@ -1151,7 +1174,10 @@ function BacktestPage() {
         <section className="border border-slate-800 rounded-2xl p-5 bg-slate-950/60 md:col-span-3">
           <h2 className="text-lg font-semibold mb-2">Backtest History</h2>
           {history.length === 0 ? (
-            <p className="text-sm text-slate-400">Run a backtest to capture a history of your parameter sets and outcomes.</p>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
+              <p className="font-semibold text-slate-100 mb-1">No history yet</p>
+              <p>Run a backtest to capture a history of your parameter sets and outcomes.</p>
+            </div>
           ) : (
             <div className="table-wrapper">
               <table className="trades-table">
