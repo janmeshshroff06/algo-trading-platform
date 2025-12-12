@@ -101,6 +101,7 @@ type StrategyProfile = {
 };
 
 type LinePoint = { time: number; value: number };
+type EquityCurvePoint = { timestamp: string; equity: number };
 
 const BACKEND_BASE_URL = "http://127.0.0.1:8000/api/v1";
 
@@ -496,6 +497,39 @@ function BacktestPage() {
     if (!isReplaying || lastReplayTime === undefined) return tradeMarkers;
     return tradeMarkers.filter((m) => m.time <= lastReplayTime);
   }, [isReplaying, lastReplayTime, tradeMarkers]);
+
+  const equityPoints = useMemo(() => {
+    return (
+      backtestResult?.equity_curve.map((pt) => ({
+        time: toUnixSeconds(pt.timestamp),
+        equity: pt.equity,
+      })) ?? []
+    );
+  }, [backtestResult]);
+
+  const equityAsOf = (time: number) => {
+    if (!equityPoints.length) return 0;
+    let latest = equityPoints[0].equity;
+    for (const pt of equityPoints) {
+      if (pt.time <= time) {
+        latest = pt.equity;
+      } else {
+        break;
+      }
+    }
+    return latest;
+  };
+
+  const replayedEquityCurve: EquityCurvePoint[] = useMemo(() => {
+    if (!isReplaying || !backtestResult) return backtestResult?.equity_curve ?? [];
+    if (!replayedCandles.length) return [];
+    return replayedCandles.map((c) => ({
+      timestamp: new Date(c.time * 1000).toISOString(),
+      equity: equityAsOf(c.time),
+    }));
+  }, [isReplaying, backtestResult, replayedCandles, equityPoints]);
+
+  const equityChartData = isReplaying ? replayedEquityCurve : backtestResult?.equity_curve ?? [];
 
   const toggledSmaShort = showShortLine ? replayedSmaShort : [];
   const toggledSmaLong = showLongLine ? replayedSmaLong : [];
@@ -995,7 +1029,7 @@ function BacktestPage() {
                 <h3 className="panel-subtitle">Equity Curve</h3>
                 <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={backtestResult.equity_curve}>
+                    <AreaChart data={equityChartData}>
                       <defs>
                         <linearGradient id="colorEquity" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#34d399" stopOpacity={0.8} />
