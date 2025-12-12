@@ -136,6 +136,10 @@ function BacktestPage() {
   const [newProfileName, setNewProfileName] = useState("");
   const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
 
+  const [showShortLine, setShowShortLine] = useState(true);
+  const [showLongLine, setShowLongLine] = useState(true);
+  const [showTradeMarkers, setShowTradeMarkers] = useState(true);
+
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replaySpeedMs, setReplaySpeedMs] = useState(150);
@@ -492,6 +496,12 @@ function BacktestPage() {
     if (!isReplaying || lastReplayTime === undefined) return tradeMarkers;
     return tradeMarkers.filter((m) => m.time <= lastReplayTime);
   }, [isReplaying, lastReplayTime, tradeMarkers]);
+
+  const toggledSmaShort = showShortLine ? replayedSmaShort : [];
+  const toggledSmaLong = showLongLine ? replayedSmaLong : [];
+  const toggledEmaFast = showShortLine ? replayedEmaFast : [];
+  const toggledEmaSlow = showLongLine ? replayedEmaSlow : [];
+  const toggledMarkers = showTradeMarkers ? replayedMarkers : [];
 
   const lastClose = prices.length > 0 ? prices[prices.length - 1].close.toFixed(2) : null;
 
@@ -906,7 +916,7 @@ function BacktestPage() {
 
               <div className="equity-panel">
                 <h3 className="panel-subtitle">Price & Signals</h3>
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-4 mb-2 flex-wrap text-xs text-slate-300">
                   {!isReplaying ? (
                     <button
                       type="button"
@@ -941,17 +951,41 @@ function BacktestPage() {
                       {replayIndex}/{backtestCandles.length}
                     </span>
                   )}
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={showShortLine}
+                      onChange={(e) => setShowShortLine(e.target.checked)}
+                    />
+                    <span>Show Short</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={showLongLine}
+                      onChange={(e) => setShowLongLine(e.target.checked)}
+                    />
+                    <span>Show Long</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={showTradeMarkers}
+                      onChange={(e) => setShowTradeMarkers(e.target.checked)}
+                    />
+                    <span>Buy/Sell Markers</span>
+                  </label>
                 </div>
                 {backtestCandles.length === 0 ? (
                   <p className="text-sm text-slate-400">No candle data returned for this run.</p>
                 ) : (
                   <CandlestickChart
                     candles={replayedCandles}
-                    smaShort={replayedSmaShort}
-                    smaLong={replayedSmaLong}
-                    emaFast={replayedEmaFast}
-                    emaSlow={replayedEmaSlow}
-                    markers={replayedMarkers}
+                    smaShort={toggledSmaShort}
+                    smaLong={toggledSmaLong}
+                    emaFast={toggledEmaFast}
+                    emaSlow={toggledEmaSlow}
+                    markers={toggledMarkers}
                     height={360}
                   />
                 )}
